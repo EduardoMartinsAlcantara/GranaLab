@@ -1,12 +1,12 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 
 export default function RegisterScreen() {
@@ -14,6 +14,10 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  function handleContinue() {
+    router.push('/select-role');
+  }
 
   return (
     <ScrollView
@@ -76,7 +80,10 @@ export default function RegisterScreen() {
           onChangeText={setConfirmPassword}
         />
 
-        <Pressable style={styles.registerButton}>
+        <Pressable
+          style={styles.registerButton}
+          onPress={handleContinue}
+        >
           <Text style={styles.registerButtonText}>Continuar</Text>
         </Pressable>
 
