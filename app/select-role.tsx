@@ -10,14 +10,18 @@ import {
 type UserRole = 'student' | 'teacher';
 
 export default function SelectRoleScreen() {
-  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
+  const [selectedRole, setSelectedRole] =
+    useState<UserRole | null>(null);
 
   function handleContinue() {
     if (!selectedRole) {
       return;
     }
 
-    console.log('Tipo de usuário escolhido:', selectedRole);
+    console.log(
+      'Tipo de usuário escolhido:',
+      selectedRole
+    );
   }
 
   return (
@@ -26,7 +30,9 @@ export default function SelectRoleScreen() {
         <Text style={styles.backButton}>← Voltar</Text>
       </Pressable>
 
-      <Text style={styles.title}>Como você vai usar o GranaLab?</Text>
+      <Text style={styles.title}>
+        Como você vai usar o GranaLab?
+      </Text>
 
       <Text style={styles.subtitle}>
         Escolha uma opção para personalizarmos sua experiência.
@@ -36,18 +42,22 @@ export default function SelectRoleScreen() {
         <Pressable
           style={[
             styles.optionCard,
-            selectedRole === 'student' && styles.optionCardSelected,
+            selectedRole === 'student' &&
+              styles.optionCardSelected,
           ]}
           onPress={() => setSelectedRole('student')}
         >
           <Text style={styles.emoji}>🎓</Text>
 
           <View style={styles.optionContent}>
-            <Text style={styles.optionTitle}>Aluno</Text>
+            <Text style={styles.optionTitle}>
+              Aluno
+            </Text>
 
             <Text style={styles.optionDescription}>
-              Quero aprender sobre educação financeira, controlar meus gastos
-              e aprender sobre investimentos.
+              Quero aprender sobre educação financeira,
+              controlar meus gastos e aprender sobre
+              investimentos.
             </Text>
           </View>
         </Pressable>
@@ -55,17 +65,21 @@ export default function SelectRoleScreen() {
         <Pressable
           style={[
             styles.optionCard,
-            selectedRole === 'teacher' && styles.optionCardSelected,
+            selectedRole === 'teacher' &&
+              styles.optionCardSelected,
           ]}
           onPress={() => setSelectedRole('teacher')}
         >
           <Text style={styles.emoji}>👨‍🏫</Text>
 
           <View style={styles.optionContent}>
-            <Text style={styles.optionTitle}>Professor</Text>
+            <Text style={styles.optionTitle}>
+              Professor
+            </Text>
 
             <Text style={styles.optionDescription}>
-              Quero criar turmas e acompanhar o progresso dos meus alunos.
+              Quero criar turmas e acompanhar o progresso dos
+              meus alunos.
             </Text>
           </View>
         </Pressable>
@@ -74,12 +88,15 @@ export default function SelectRoleScreen() {
       <Pressable
         style={[
           styles.continueButton,
-          !selectedRole && styles.continueButtonDisabled,
+          !selectedRole &&
+            styles.continueButtonDisabled,
         ]}
         disabled={!selectedRole}
         onPress={handleContinue}
       >
-        <Text style={styles.continueButtonText}>Continuar</Text>
+        <Text style={styles.continueButtonText}>
+          Continuar
+        </Text>
       </Pressable>
     </View>
   );

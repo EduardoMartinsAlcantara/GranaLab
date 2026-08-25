@@ -84,7 +84,9 @@ export default function RegisterScreen() {
           style={styles.registerButton}
           onPress={handleContinue}
         >
-          <Text style={styles.registerButtonText}>Continuar</Text>
+          <Text style={styles.registerButtonText}>
+            Continuar
+          </Text>
         </Pressable>
 
         <Pressable onPress={() => router.push('/login')}>
