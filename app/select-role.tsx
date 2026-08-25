@@ -1,32 +1,102 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
+    ActivityIndicator,
+    Alert,
     Pressable,
     StyleSheet,
     Text,
     View,
 } from 'react-native';
 
+import { useRegister } from '../contexts/RegisterContext';
+import { supabase } from '../lib/supabase';
+
 type UserRole = 'student' | 'teacher';
 
 export default function SelectRoleScreen() {
+  const { registerData, clearRegisterData } = useRegister();
+
   const [selectedRole, setSelectedRole] =
     useState<UserRole | null>(null);
 
-  function handleContinue() {
+  const [loading, setLoading] = useState(false);
+
+  async function handleContinue() {
     if (!selectedRole) {
       return;
     }
 
-    console.log(
-      'Tipo de usuário escolhido:',
-      selectedRole
-    );
+    if (
+      !registerData.name ||
+      !registerData.email ||
+      !registerData.password
+    ) {
+      Alert.alert(
+        'Cadastro incompleto',
+        'Volte e preencha seus dados novamente.'
+      );
+
+      router.replace('/register');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const { data, error } = await supabase.auth.signUp({
+        email: registerData.email,
+        password: registerData.password,
+
+        options: {
+          data: {
+            name: registerData.name,
+            role: selectedRole,
+          },
+        },
+      });
+
+      if (error) {
+        Alert.alert(
+          'Não foi possível criar a conta',
+          error.message
+        );
+
+        return;
+      }
+
+      console.log('Usuário criado:', data.user?.id);
+
+      clearRegisterData();
+
+      Alert.alert(
+        'Conta criada!',
+        'Sua conta foi criada com sucesso.',
+        [
+          {
+            text: 'OK',
+            onPress: () => router.replace('/login'),
+          },
+        ]
+      );
+    } catch (error) {
+      console.error(error);
+
+      Alert.alert(
+        'Erro inesperado',
+        'Não foi possível criar sua conta. Tente novamente.'
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => router.back()}>
+      <Pressable
+        onPress={() => router.back()}
+        disabled={loading}
+      >
         <Text style={styles.backButton}>← Voltar</Text>
       </Pressable>
 
@@ -45,6 +115,7 @@ export default function SelectRoleScreen() {
             selectedRole === 'student' &&
               styles.optionCardSelected,
           ]}
+          disabled={loading}
           onPress={() => setSelectedRole('student')}
         >
           <Text style={styles.emoji}>🎓</Text>
@@ -68,6 +139,7 @@ export default function SelectRoleScreen() {
             selectedRole === 'teacher' &&
               styles.optionCardSelected,
           ]}
+          disabled={loading}
           onPress={() => setSelectedRole('teacher')}
         >
           <Text style={styles.emoji}>👨‍🏫</Text>
@@ -88,15 +160,19 @@ export default function SelectRoleScreen() {
       <Pressable
         style={[
           styles.continueButton,
-          !selectedRole &&
+          (!selectedRole || loading) &&
             styles.continueButtonDisabled,
         ]}
-        disabled={!selectedRole}
+        disabled={!selectedRole || loading}
         onPress={handleContinue}
       >
-        <Text style={styles.continueButtonText}>
-          Continuar
-        </Text>
+        {loading ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <Text style={styles.continueButtonText}>
+            Continuar
+          </Text>
+        )}
       </Pressable>
     </View>
   );

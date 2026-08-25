@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,13 +10,64 @@ import {
   View,
 } from 'react-native';
 
+import { useRegister } from '../contexts/RegisterContext';
+
 export default function RegisterScreen() {
+  const { setRegisterData } = useRegister();
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
   function handleContinue() {
+    if (
+      !name.trim() ||
+      !email.trim() ||
+      !password ||
+      !confirmPassword
+    ) {
+      Alert.alert(
+        'Campos incompletos',
+        'Preencha todos os campos.'
+      );
+
+      return;
+    }
+
+    if (!email.includes('@') || !email.includes('.')) {
+      Alert.alert(
+        'E-mail inválido',
+        'Digite um endereço de e-mail válido.'
+      );
+
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert(
+        'Senha muito curta',
+        'Sua senha precisa ter pelo menos 6 caracteres.'
+      );
+
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert(
+        'Senhas diferentes',
+        'As duas senhas precisam ser iguais.'
+      );
+
+      return;
+    }
+
+    setRegisterData({
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      password,
+    });
+
     router.push('/select-role');
   }
 
