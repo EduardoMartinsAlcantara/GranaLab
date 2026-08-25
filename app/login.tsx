@@ -1,20 +1,113 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
+
+import { supabase } from '../lib/supabase';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleLogin() {
+    if (!email.trim() || !password) {
+      Alert.alert(
+        'Campos incompletos',
+        'Preencha seu e-mail e sua senha.'
+      );
+
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const { data, error } =
+        await supabase.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password,
+        });
+
+      if (error) {
+  console.log('Erro no login:', error.message);
+
+  Alert.alert(
+    'Não foi possível entrar',
+    error.message
+  );
+
+  return;
+}
+
+      const user = data.user;
+
+      if (!user) {
+        Alert.alert(
+          'Erro',
+          'Não foi possível identificar o usuário.'
+        );
+
+        return;
+      }
+
+      const { data: profile, error: profileError } =
+        await supabase
+          .from('profiles')
+          .select('name, role')
+          .eq('id', user.id)
+          .single();
+
+      if (profileError || !profile) {
+        console.error(profileError);
+
+        Alert.alert(
+          'Perfil não encontrado',
+          'Não foi possível carregar seu perfil.'
+        );
+
+        return;
+      }
+
+      if (profile.role === 'student') {
+        router.replace('/student-home');
+        return;
+      }
+
+      if (profile.role === 'teacher') {
+        router.replace('/teacher-home');
+        return;
+      }
+
+      Alert.alert(
+        'Perfil inválido',
+        'O tipo de usuário não foi reconhecido.'
+      );
+    } catch (error) {
+      console.error(error);
+
+      Alert.alert(
+        'Erro inesperado',
+        'Não foi possível entrar. Tente novamente.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => router.back()}>
+      <Pressable
+        onPress={() => router.back()}
+        disabled={loading}
+      >
         <Text style={styles.backButton}>← Voltar</Text>
       </Pressable>
 
@@ -48,11 +141,27 @@ export default function LoginScreen() {
           onChangeText={setPassword}
         />
 
-        <Pressable style={styles.loginButton}>
-          <Text style={styles.loginButtonText}>Entrar</Text>
+        <Pressable
+          style={[
+            styles.loginButton,
+            loading && styles.loginButtonDisabled,
+          ]}
+          onPress={handleLogin}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.loginButtonText}>
+              Entrar
+            </Text>
+          )}
         </Pressable>
 
-        <Pressable onPress={() => router.push('/register')}>
+        <Pressable
+          onPress={() => router.push('/register')}
+          disabled={loading}
+        >
           <Text style={styles.registerText}>
             Ainda não tem conta? Criar conta
           </Text>
@@ -119,6 +228,10 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 10,
+  },
+
+  loginButtonDisabled: {
+    opacity: 0.7,
   },
 
   loginButtonText: {
