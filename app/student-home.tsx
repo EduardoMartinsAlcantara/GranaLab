@@ -1,12 +1,12 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 
 import { supabase } from '../lib/supabase';
@@ -16,15 +16,25 @@ type Profile = {
   role: string;
 };
 
+type Transaction = {
+  id: string;
+  type: 'credit' | 'debit';
+  amount: number;
+  description: string;
+  created_at: string;
+};
+
 export default function StudentHomeScreen() {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [balance, setBalance] = useState(0);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadProfile();
+    loadDashboard();
   }, []);
 
-  async function loadProfile() {
+  async function loadDashboard() {
     try {
       const {
         data: { user },
@@ -35,18 +45,67 @@ export default function StudentHomeScreen() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('name, role')
-        .eq('id', user.id)
-        .single();
+      const { data: profileData, error: profileError } =
+        await supabase
+          .from('profiles')
+          .select('name, role')
+          .eq('id', user.id)
+          .single();
 
-      if (error) {
-        console.error('Erro ao carregar perfil:', error.message);
+      if (profileError) {
+        console.error(
+          'Erro ao carregar perfil:',
+          profileError.message
+        );
+
         return;
       }
 
-      setProfile(data);
+      setProfile(profileData);
+
+      const { data: walletData, error: walletError } =
+        await supabase
+          .from('wallets')
+          .select('id, balance')
+          .eq('student_id', user.id)
+          .single();
+
+      if (walletError) {
+        console.error(
+          'Erro ao carregar carteira:',
+          walletError.message
+        );
+
+        return;
+      }
+
+      setBalance(Number(walletData.balance));
+
+      const { data: transactionsData, error: transactionsError } =
+        await supabase
+          .from('wallet_transactions')
+          .select('id, type, amount, description, created_at')
+          .eq('wallet_id', walletData.id)
+          .order('created_at', {
+            ascending: false,
+          })
+          .limit(5);
+
+      if (transactionsError) {
+        console.error(
+          'Erro ao carregar transações:',
+          transactionsError.message
+        );
+
+        return;
+      }
+
+      setTransactions(
+        (transactionsData || []).map((transaction) => ({
+          ...transaction,
+          amount: Number(transaction.amount),
+        }))
+      );
     } finally {
       setLoading(false);
     }
@@ -56,6 +115,17 @@ export default function StudentHomeScreen() {
     await supabase.auth.signOut();
 
     router.replace('/login');
+  }
+
+  function formatCurrency(value: number) {
+    return value.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    });
+  }
+
+  function formatDate(date: string) {
+    return new Date(date).toLocaleDateString('pt-BR');
   }
 
   if (loading) {
@@ -75,7 +145,7 @@ export default function StudentHomeScreen() {
       contentContainerStyle={styles.content}
     >
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerText}>
           <Text style={styles.greeting}>
             Olá, {profile?.name || 'Aluno'} 👋
           </Text>
@@ -98,12 +168,58 @@ export default function StudentHomeScreen() {
         </Text>
 
         <Text style={styles.balanceValue}>
-          R$ 500,00
+          {formatCurrency(balance)}
         </Text>
 
         <Text style={styles.balanceDescription}>
-          Use seu saldo para aprender sobre investimentos.
+          Complete atividades para aumentar seu saldo e
+          utilizá-lo nos investimentos simulados.
         </Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>
+          Movimentações recentes
+        </Text>
+
+        {transactions.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>
+              Nenhuma movimentação encontrada.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.transactionsCard}>
+            {transactions.map((transaction) => (
+              <View
+                key={transaction.id}
+                style={styles.transactionItem}
+              >
+                <View style={styles.transactionInfo}>
+                  <Text style={styles.transactionDescription}>
+                    {transaction.description}
+                  </Text>
+
+                  <Text style={styles.transactionDate}>
+                    {formatDate(transaction.created_at)}
+                  </Text>
+                </View>
+
+                <Text
+                  style={[
+                    styles.transactionAmount,
+                    transaction.type === 'credit'
+                      ? styles.creditAmount
+                      : styles.debitAmount,
+                  ]}
+                >
+                  {transaction.type === 'credit' ? '+' : '-'}{' '}
+                  {formatCurrency(transaction.amount)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -135,7 +251,9 @@ export default function StudentHomeScreen() {
 
         <Pressable style={styles.lessonCard}>
           <View style={styles.lessonIcon}>
-            <Text style={styles.lessonEmoji}>📚</Text>
+            <Text style={styles.lessonEmoji}>
+              📚
+            </Text>
           </View>
 
           <View style={styles.lessonContent}>
@@ -144,7 +262,8 @@ export default function StudentHomeScreen() {
             </Text>
 
             <Text style={styles.lessonDescription}>
-              Aprenda os primeiros conceitos sobre organização financeira.
+              Aprenda os primeiros conceitos sobre organização
+              financeira.
             </Text>
           </View>
         </Pressable>
@@ -157,12 +276,20 @@ export default function StudentHomeScreen() {
 
         <View style={styles.quickActions}>
           <Pressable style={styles.quickCard}>
-            <Text style={styles.quickEmoji}>💳</Text>
-            <Text style={styles.quickTitle}>Gastos</Text>
+            <Text style={styles.quickEmoji}>
+              💳
+            </Text>
+
+            <Text style={styles.quickTitle}>
+              Gastos
+            </Text>
           </Pressable>
 
           <Pressable style={styles.quickCard}>
-            <Text style={styles.quickEmoji}>📈</Text>
+            <Text style={styles.quickEmoji}>
+              📈
+            </Text>
+
             <Text style={styles.quickTitle}>
               Investir
             </Text>
@@ -196,6 +323,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+  },
+
+  headerText: {
+    flex: 1,
+    paddingRight: 20,
   },
 
   greeting: {
@@ -251,6 +383,62 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1F2937',
     marginBottom: 14,
+  },
+
+  transactionsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingHorizontal: 18,
+  },
+
+  transactionItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+
+  transactionInfo: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  transactionDescription: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+
+  transactionDate: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginTop: 4,
+  },
+
+  transactionAmount: {
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+
+  creditAmount: {
+    color: '#1B5E20',
+  },
+
+  debitAmount: {
+    color: '#B91C1C',
+  },
+
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+  },
+
+  emptyText: {
+    color: '#6B7280',
+    fontSize: 14,
   },
 
   progressCard: {
