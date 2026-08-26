@@ -275,7 +275,10 @@ export default function StudentHomeScreen() {
         </Text>
 
         <View style={styles.quickActions}>
-          <Pressable style={styles.quickCard}>
+          <Pressable
+            style={styles.quickCard}
+            onPress={() => router.push('/expenses')}
+          >
             <Text style={styles.quickEmoji}>
               💳
             </Text>
