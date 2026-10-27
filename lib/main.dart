@@ -635,9 +635,11 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int chip = 0, nav = 0;
+  int nav = 0;
   String nome = 'Aluno', papel = 'aluno';
   double saldo = 500;
+  List<Map<String, dynamic>> trans = [], aulas = [];
+  Set<int> feitas = {};
 
   @override
   void initState() {
@@ -657,6 +659,21 @@ class _HomePageState extends State<HomePage> {
         saldo = (p['saldo'] as num).toDouble();
       });
     } catch (_) {}
+    try {
+      final t = await supa
+          .from('transacoes')
+          .select()
+          .order('criado_em', ascending: false)
+          .limit(100);
+      final a = await supa.from('aulas').select().order('id');
+      final g = await supa.from('progresso').select().eq('concluida', true);
+      if (!mounted) return;
+      setState(() {
+        trans = List<Map<String, dynamic>>.from(t);
+        aulas = List<Map<String, dynamic>>.from(a);
+        feitas = {for (final x in g) x['aula_id'] as int};
+      });
+    } catch (_) {}
   }
 
   Future<void> _sair() async {
@@ -664,180 +681,64 @@ class _HomePageState extends State<HomePage> {
     if (!mounted) return;
     Navigator.of(context).pushReplacement(fade(const AuthPage()));
   }
-  static const chips = ['Todas', 'Poupar', 'Investir', 'Gastos'];
-  // (título, subtítulo, progresso, ícone, categoria)
-  static const lessons = [
-    ('Poupar sem sofrer', 'Aula 3 de 5', 0.6, Icons.savings_outlined, 1),
-    ('Juros compostos', 'Aula 1 de 4', 0.25, Icons.trending_up_rounded, 2),
-    ('Gastos do dia a dia', 'Aula 4 de 4', 0.9, Icons.receipt_long_outlined, 3),
-    ('Primeiros investimentos', 'Em breve', 0.0, Icons.lock_outline, 2),
-  ];
 
-  @override
-  Widget build(BuildContext context) {
-    final shown = lessons.where((l) => chip == 0 || l.$5 == chip).toList();
-    return Scaffold(
-      backgroundColor: kDark,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: nav,
-        onDestinationSelected: (i) {
-          setState(() => nav = i);
-          if (i == 0) _carrega();
-        },
-        backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFFDCEFDD),
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded),
-              label: 'Início'),
-          NavigationDestination(
-              icon: Icon(Icons.account_balance_wallet_outlined), label: 'Carteira'),
-          NavigationDestination(
-              icon: Icon(Icons.menu_book_outlined), label: 'Aulas'),
-          NavigationDestination(
-              icon: Icon(Icons.person_outline), label: 'Perfil'),
-        ],
-      ),
-      body: nav == 1
-          ? const CarteiraTab()
-          : SafeArea(
-        bottom: false,
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-            child: Row(children: [
-              const CircleAvatar(
-                  radius: 22,
-                  backgroundColor: kGreen,
-                  child: Icon(Icons.person, color: Colors.white)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Olá, $nome',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16)),
-                  Text(papel == 'professor' ? 'Professor' : 'Nível 1 · Aprendiz',
-                      style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12)),
-                ]),
-              ),
-              IconButton(
-                  onPressed: _sair,
-                  tooltip: 'Sair',
-                  icon: const Icon(Icons.logout_rounded, color: Colors.white)),
-            ]),
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Text('Trilhas em destaque', style: serif(28)),
-            ),
-          ),
-          Expanded(
-            child: Container(
-              decoration: const BoxDecoration(
-                color: kBg,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-              ),
-              child: ListView(padding: const EdgeInsets.all(20), children: [
-                Reveal(
-                  delay: 100,
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(24),
-                      gradient: const LinearGradient(
-                          colors: [kGreenLight, kGreen],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight),
-                      boxShadow: const [
-                        BoxShadow(
-                            color: Color(0x401B5E20),
-                            blurRadius: 24,
-                            offset: Offset(0, 10))
-                      ],
-                    ),
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Saldo virtual',
-                              style: TextStyle(color: Color(0xCCFFFFFF))),
-                          SizedBox(height: 6),
-                          Text(_brl(saldo),
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 34,
-                                  fontWeight: FontWeight.w800)),
-                          SizedBox(height: 6),
-                          Text('Dinheiro de mentira, aprendizado de verdade.',
-                              style: TextStyle(
-                                  color: Color(0xCCFFFFFF), fontSize: 12)),
-                        ]),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  height: 40,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: chips.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (_, i) => ChoiceChip(
-                      label: Text(chips[i]),
-                      selected: chip == i,
-                      showCheckmark: false,
-                      selectedColor: kDark,
-                      labelStyle: TextStyle(
-                          color: chip == i ? Colors.white : kText,
-                          fontWeight: FontWeight.w600),
-                      onSelected: (_) => setState(() => chip = i),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                for (var i = 0; i < shown.length; i++)
-                  Reveal(
-                    key: ValueKey(shown[i].$1),
-                    delay: 250 + i * 100,
-                    child: _lessonCard(shown[i]),
-                  ),
-              ]),
-            ),
-          ),
-        ]),
-      ),
-    );
-  }
-
-  Widget _lessonCard((String, String, double, IconData, int) l) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
+  Widget _card(Widget child) => Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 16),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
             color: Colors.white, borderRadius: BorderRadius.circular(20)),
-        child: Row(children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-                color: const Color(0xFFDCEFDD),
-                borderRadius: BorderRadius.circular(14)),
-            child: Icon(l.$4, color: kGreen),
+        child: child,
+      );
+
+  Widget _titulo(String t) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(t,
+            style: const TextStyle(
+                color: kText, fontSize: 17, fontWeight: FontWeight.w800)),
+      );
+
+  Widget _gastos() {
+    final porCat = <String, double>{};
+    for (final m in trans.where((m) => m['tipo'] == 'gasto')) {
+      final c = m['categoria'] as String;
+      porCat[c] = (porCat[c] ?? 0) + (m['valor'] as num).toDouble();
+    }
+    final total = porCat.values.fold(0.0, (a, b) => a + b);
+    final lista = porCat.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _titulo('Para onde foi seu dinheiro'),
+      if (lista.isEmpty)
+        Row(children: [
+          const Expanded(
+            child: Text('Você ainda não registrou gastos.',
+                style: TextStyle(color: kMuted)),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(l.$1,
-                  style: const TextStyle(
-                      color: kText, fontWeight: FontWeight.w700, fontSize: 15)),
-              const SizedBox(height: 2),
-              Text(l.$2, style: const TextStyle(color: kMuted, fontSize: 12)),
-              const SizedBox(height: 8),
+          TextButton(
+              onPressed: () => setState(() => nav = 1),
+              child: const Text('Registrar')),
+        ])
+      else ...[
+        Text('Total gasto: ${_brl(total)}',
+            style: const TextStyle(color: kMuted, fontSize: 13)),
+        const SizedBox(height: 12),
+        for (final e in lista.take(4))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Column(children: [
+              Row(children: [
+                Expanded(
+                    child: Text(e.key,
+                        style: const TextStyle(
+                            color: kText, fontWeight: FontWeight.w600))),
+                Text(_brl(e.value),
+                    style: const TextStyle(color: kMuted, fontSize: 13)),
+              ]),
+              const SizedBox(height: 6),
               TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: l.$3),
-                duration: const Duration(milliseconds: 900),
+                tween: Tween(begin: 0, end: e.value / total),
+                duration: const Duration(milliseconds: 800),
                 curve: Curves.easeOutCubic,
                 builder: (_, v, __) => LinearProgressIndicator(
                   value: v,
@@ -849,10 +750,209 @@ class _HomePageState extends State<HomePage> {
               ),
             ]),
           ),
-        ]),
+      ],
+    ]));
+  }
+
+  Widget _continuar() {
+    if (aulas.isEmpty) return const SizedBox.shrink();
+    final prox = aulas.firstWhere((a) => !feitas.contains(a['id']),
+        orElse: () => <String, dynamic>{});
+    return _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _titulo(prox.isEmpty ? 'Aulas concluídas' : 'Continue aprendendo'),
+      if (prox.isEmpty)
+        const Text('Parabéns! Você concluiu todas as aulas disponíveis.',
+            style: TextStyle(color: kMuted))
+      else ...[
+        Text(prox['titulo'] as String,
+            style: const TextStyle(
+                color: kText, fontWeight: FontWeight.w700, fontSize: 15)),
+        const SizedBox(height: 2),
+        Text(prox['resumo'] as String,
+            style: const TextStyle(color: kMuted, fontSize: 13)),
+        const SizedBox(height: 10),
+        Text('${feitas.length} de ${aulas.length} aulas concluídas',
+            style: const TextStyle(
+                color: kGreen, fontSize: 12, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          height: 46,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: kGreen,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+            ),
+            onPressed: () async {
+              await Navigator.of(context)
+                  .push(fade(LessonPage(aula: prox, feita: false)));
+              _carrega();
+            },
+            child: const Text('Abrir aula (+R\$ 25,00)'),
+          ),
+        ),
+      ],
+    ]));
+  }
+
+  Widget _ultimas() {
+    if (trans.isEmpty) return const SizedBox.shrink();
+    return _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(child: _titulo('Últimas movimentações')),
+        TextButton(
+            onPressed: () => setState(() => nav = 1),
+            child: const Text('Ver tudo')),
+      ]),
+      for (final m in trans.take(3))
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(children: [
+            Icon(
+                m['tipo'] == 'gasto'
+                    ? Icons.arrow_upward_rounded
+                    : Icons.arrow_downward_rounded,
+                color: m['tipo'] == 'gasto' ? kRed : kGreen,
+                size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Text(m['descricao'] as String,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: kText))),
+            Text(
+                '${m['tipo'] == 'gasto' ? '-' : '+'}${_brl((m['valor'] as num).toDouble())}',
+                style: TextStyle(
+                    color: m['tipo'] == 'gasto' ? kRed : kGreen,
+                    fontWeight: FontWeight.w700)),
+          ]),
+        ),
+    ]));
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: kDark,
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: nav,
+          onDestinationSelected: (i) {
+            setState(() => nav = i);
+            if (i == 0) _carrega();
+          },
+          backgroundColor: Colors.white,
+          indicatorColor: const Color(0xFFDCEFDD),
+          destinations: const [
+            NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home_rounded),
+                label: 'Início'),
+            NavigationDestination(
+                icon: Icon(Icons.account_balance_wallet_outlined),
+                label: 'Carteira'),
+            NavigationDestination(
+                icon: Icon(Icons.menu_book_outlined), label: 'Aulas'),
+            NavigationDestination(
+                icon: Icon(Icons.person_outline), label: 'Perfil'),
+          ],
+        ),
+        body: nav == 1
+            ? const CarteiraTab()
+            : nav == 2
+                ? const AulasTab()
+                : SafeArea(
+                    bottom: false,
+                    child: Column(children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                        child: Row(children: [
+                          const CircleAvatar(
+                              radius: 22,
+                              backgroundColor: kGreen,
+                              child: Icon(Icons.person, color: Colors.white)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Olá, $nome',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 16)),
+                                  Text(
+                                      papel == 'professor'
+                                          ? 'Professor'
+                                          : 'Aluno',
+                                      style: const TextStyle(
+                                          color: Color(0xFF9CA3AF),
+                                          fontSize: 12)),
+                                ]),
+                          ),
+                          IconButton(
+                              onPressed: _sair,
+                              tooltip: 'Sair',
+                              icon: const Icon(Icons.logout_rounded,
+                                  color: Colors.white)),
+                        ]),
+                      ),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                          child: Text('Seu resumo', style: serif(28)),
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          decoration: sheetDeco,
+                          child: ListView(
+                              padding: const EdgeInsets.all(20),
+                              children: [
+                                Reveal(
+                                  delay: 100,
+                                  child: Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 16),
+                                    padding: const EdgeInsets.all(20),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(24),
+                                      gradient: const LinearGradient(
+                                          colors: [kGreenLight, kGreen],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                            color: Color(0x401B5E20),
+                                            blurRadius: 24,
+                                            offset: Offset(0, 10))
+                                      ],
+                                    ),
+                                    child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Text('Saldo virtual',
+                                              style: TextStyle(
+                                                  color: Color(0xCCFFFFFF))),
+                                          const SizedBox(height: 6),
+                                          Text(_brl(saldo),
+                                              style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 34,
+                                                  fontWeight: FontWeight.w800)),
+                                        ]),
+                                  ),
+                                ),
+                                Reveal(delay: 200, child: _gastos()),
+                                Reveal(delay: 300, child: _continuar()),
+                                Reveal(delay: 400, child: _ultimas()),
+                              ]),
+                        ),
+                      ),
+                    ]),
+                  ),
       );
 }
-
 
 // ------------------------------------------------------------- CARTEIRA
 const categorias = ['Alimentação', 'Transporte', 'Lazer', 'Estudos', 'Outros'];
@@ -1167,5 +1267,414 @@ class _NovaTransacaoState extends State<NovaTransacao> {
                 ),
               ),
             ]),
+      );
+}
+
+
+// ----------------------------------------------------------------- AULAS
+Widget sheetTop(String titulo, {String? sub}) => Column(children: [
+      Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+          child: Text(titulo, style: serif(28)),
+        ),
+      ),
+      if (sub != null)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: Text(sub, style: const TextStyle(color: Color(0xFF9CA3AF))),
+          ),
+        ),
+    ]);
+
+const sheetDeco = BoxDecoration(
+  color: kBg,
+  borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+);
+
+class AulasTab extends StatefulWidget {
+  const AulasTab({super.key});
+  @override
+  State<AulasTab> createState() => _AulasTabState();
+}
+
+class _AulasTabState extends State<AulasTab> {
+  List<Map<String, dynamic>> aulas = [];
+  Map<int, Map<String, dynamic>> prog = {};
+  bool carregando = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _carrega();
+  }
+
+  Future<void> _carrega() async {
+    try {
+      final a = await supa.from('aulas').select().order('id');
+      final p = await supa.from('progresso').select();
+      if (!mounted) return;
+      setState(() {
+        aulas = List<Map<String, dynamic>>.from(a);
+        prog = {
+          for (final x in p) x['aula_id'] as int: Map<String, dynamic>.from(x)
+        };
+        carregando = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => carregando = false);
+    }
+  }
+
+  Future<void> _abrir(Map<String, dynamic> aula) async {
+    final feita = prog[aula['id']]?['concluida'] == true;
+    await Navigator.of(context).push(fade(LessonPage(aula: aula, feita: feita)));
+    _carrega();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final feitas = prog.values.where((p) => p['concluida'] == true).length;
+    return SafeArea(
+      bottom: false,
+      child: Column(children: [
+        sheetTop('Aulas', sub: '$feitas de ${aulas.length} concluídas'),
+        Expanded(
+          child: Container(
+            decoration: sheetDeco,
+            child: carregando
+                ? const Center(child: CircularProgressIndicator())
+                : ListView(padding: const EdgeInsets.all(20), children: [
+                    for (var i = 0; i < aulas.length; i++)
+                      Reveal(
+                        key: ValueKey(aulas[i]['id']),
+                        delay: 100 + i * 100,
+                        child: _card(aulas[i]),
+                      ),
+                  ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _card(Map<String, dynamic> a) {
+    final p = prog[a['id']];
+    final feita = p?['concluida'] == true;
+    return GestureDetector(
+      onTap: () => _abrir(a),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+            color: Colors.white, borderRadius: BorderRadius.circular(20)),
+        child: Row(children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+                color: const Color(0xFFDCEFDD),
+                borderRadius: BorderRadius.circular(14)),
+            child: Icon(feita ? Icons.check_circle_rounded : Icons.menu_book_outlined,
+                color: kGreen),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(a['titulo'] as String,
+                  style: const TextStyle(
+                      color: kText, fontWeight: FontWeight.w700, fontSize: 15)),
+              const SizedBox(height: 2),
+              Text(a['resumo'] as String,
+                  style: const TextStyle(color: kMuted, fontSize: 12)),
+              if (p != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text('Melhor resultado: ${p['acertos']}/${p['total']}',
+                      style: const TextStyle(
+                          color: kGreen, fontSize: 12, fontWeight: FontWeight.w600)),
+                ),
+            ]),
+          ),
+          const Icon(Icons.chevron_right_rounded, color: kMuted),
+        ]),
+      ),
+    );
+  }
+}
+
+class LessonPage extends StatelessWidget {
+  final Map<String, dynamic> aula;
+  final bool feita;
+  const LessonPage({super.key, required this.aula, required this.feita});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: kDark,
+        body: SafeArea(
+          bottom: false,
+          child: Column(children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+              ),
+            ),
+            sheetTop(aula['titulo'] as String, sub: aula['categoria'] as String),
+            Expanded(
+              child: Container(
+                decoration: sheetDeco,
+                child: Column(children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(aula['conteudo'] as String,
+                          style: const TextStyle(
+                              color: kText, fontSize: 16, height: 1.6)),
+                    ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                        20, 8, 20, 20 + MediaQuery.of(context).padding.bottom),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: kGreen,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                        onPressed: () => Navigator.of(context)
+                            .pushReplacement(fade(QuizPage(aula: aula, feita: feita))),
+                        child: Text(
+                            feita ? 'Refazer o quiz' : 'Fazer o quiz (+R\$ 25,00)',
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ]),
+        ),
+      );
+}
+
+class QuizPage extends StatefulWidget {
+  final Map<String, dynamic> aula;
+  final bool feita;
+  const QuizPage({super.key, required this.aula, required this.feita});
+  @override
+  State<QuizPage> createState() => _QuizPageState();
+}
+
+class _QuizPageState extends State<QuizPage> {
+  List<Map<String, dynamic>> perguntas = [];
+  int i = 0, acertos = 0, certas = 0;
+  int? sel;
+  bool carregando = true, enviando = false, fim = false;
+  String? erro;
+
+  @override
+  void initState() {
+    super.initState();
+    _carrega();
+  }
+
+  Future<void> _carrega() async {
+    try {
+      final q = await supa
+          .from('perguntas')
+          .select()
+          .eq('aula_id', widget.aula['id'])
+          .order('ordem');
+      if (!mounted) return;
+      setState(() {
+        perguntas = List<Map<String, dynamic>>.from(q);
+        carregando = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => carregando = false);
+    }
+  }
+
+  void _responder(int k) {
+    if (sel != null) return;
+    setState(() {
+      sel = k;
+      if (k == perguntas[i]['correta']) certas++;
+    });
+  }
+
+  Future<void> _proxima() async {
+    if (i < perguntas.length - 1) {
+      setState(() {
+        i++;
+        sel = null;
+      });
+      return;
+    }
+    setState(() {
+      enviando = true;
+      erro = null;
+    });
+    try {
+      final r = await supa.rpc('concluir_aula',
+          params: {'p_aula': widget.aula['id'], 'p_acertos': certas});
+      if (!mounted) return;
+      setState(() {
+        acertos = r as int;
+        fim = true;
+      });
+    } on PostgrestException catch (e) {
+      setState(() => erro = e.message);
+    } catch (_) {
+      setState(() => erro = 'Sem conexão. Tente de novo.');
+    } finally {
+      if (mounted) setState(() => enviando = false);
+    }
+  }
+
+  Widget _opcao(String texto, int k, int correta) {
+    var bg = Colors.white;
+    var bd = Colors.transparent;
+    if (sel != null) {
+      if (k == correta) {
+        bg = const Color(0xFFDCEFDD);
+        bd = kGreen;
+      } else if (k == sel) {
+        bg = const Color(0xFFFDE8E8);
+        bd = kRed;
+      }
+    }
+    return GestureDetector(
+      onTap: () => _responder(k),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: bd, width: 1.5)),
+        child: Text(texto,
+            style: const TextStyle(
+                color: kText, fontWeight: FontWeight.w600, fontSize: 15)),
+      ),
+    );
+  }
+
+  Widget _corpo() {
+    if (carregando) return const Center(child: CircularProgressIndicator());
+    if (perguntas.isEmpty) {
+      return const Center(child: Text('Sem perguntas nesta aula.'));
+    }
+    if (fim) {
+      final ok = acertos * 100 >= perguntas.length * 60;
+      final msg = ok
+          ? (widget.feita
+              ? 'Aula concluída. Sem novo prêmio, pois você já tinha concluído.'
+              : 'Aula concluída! Você ganhou R\$ 25,00 de saldo virtual.')
+          : 'Você precisa de pelo menos 60% para concluir. Releia a aula e tente de novo!';
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(ok ? Icons.emoji_events_rounded : Icons.refresh_rounded,
+              size: 72, color: ok ? const Color(0xFFF5B301) : kMuted),
+          const SizedBox(height: 16),
+          Text('Você acertou $acertos de ${perguntas.length}',
+              style: const TextStyle(
+                  color: kText, fontSize: 22, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          Text(msg,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: kMuted, fontSize: 15)),
+          const SizedBox(height: 28),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: kGreen,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Voltar às aulas'),
+            ),
+          ),
+        ]),
+      );
+    }
+    final q = perguntas[i];
+    final ops = List<String>.from(q['opcoes']);
+    final correta = q['correta'] as int;
+    return ListView(padding: const EdgeInsets.all(20), children: [
+      Text(q['pergunta'] as String,
+          style: const TextStyle(
+              color: kText, fontSize: 19, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 16),
+      for (var k = 0; k < ops.length; k++) _opcao(ops[k], k, correta),
+      if (sel != null) ...[
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+              color: Colors.white, borderRadius: BorderRadius.circular(14)),
+          child: Text(q['explicacao'] as String,
+              style: const TextStyle(color: kMuted, height: 1.4)),
+        ),
+        if (erro != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(erro!, style: const TextStyle(color: kRed)),
+          ),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 52,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: kGreen,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+            ),
+            onPressed: enviando ? null : _proxima,
+            child: Text(i < perguntas.length - 1 ? 'Próxima' : 'Ver resultado'),
+          ),
+        ),
+      ],
+    ]);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: kDark,
+        body: SafeArea(
+          bottom: false,
+          child: Column(children: [
+            Row(children: [
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+              ),
+              Expanded(
+                child: Text(
+                    fim || perguntas.isEmpty
+                        ? 'Quiz'
+                        : 'Pergunta ${i + 1} de ${perguntas.length}',
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w700)),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            Expanded(child: Container(decoration: sheetDeco, child: _corpo())),
+          ]),
+        ),
       );
 }
