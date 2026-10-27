@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -123,6 +125,15 @@ class Logo extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------- SPLASH
+const _g2 = Color(0xFF2E7D32);
+const _g4 = Color(0xFF66BB6A);
+
+double _backOut(double x) {
+  x = x.clamp(0.0, 1.0).toDouble();
+  const c1 = 1.70158, c3 = c1 + 1;
+  return 1 + c3 * math.pow(x - 1, 3) + c1 * math.pow(x - 1, 2);
+}
+
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
   @override
@@ -131,19 +142,21 @@ class SplashPage extends StatefulWidget {
 
 class _SplashPageState extends State<SplashPage>
     with SingleTickerProviderStateMixin {
+  static const total = 3.4; // segundos
   late final AnimationController c = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1300))
-    ..forward();
+      vsync: this, duration: const Duration(milliseconds: 3400));
 
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 2600), () {
-      if (!mounted) return;
-      final logado = supa.auth.currentSession != null;
-      Navigator.of(context)
-          .pushReplacement(fade(logado ? const HomePage() : const AuthPage()));
+    c.addStatusListener((st) {
+      if (st == AnimationStatus.completed && mounted) {
+        final logado = supa.auth.currentSession != null;
+        Navigator.of(context).pushReplacement(
+            fade(logado ? const HomePage() : const AuthPage()));
+      }
     });
+    c.forward();
   }
 
   @override
@@ -155,27 +168,214 @@ class _SplashPageState extends State<SplashPage>
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: kDark,
-        body: Center(
-          child: ScaleTransition(
-            scale: CurvedAnimation(parent: c, curve: Curves.easeOutBack),
-            child: FadeTransition(
-              opacity: c,
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Logo(size: 96),
-                const SizedBox(height: 24),
-                Text.rich(TextSpan(text: 'Grana', style: serif(36), children: [
-                  TextSpan(
-                      text: 'Lab',
-                      style: serif(36).copyWith(color: kGreenLight)),
-                ])),
-                const SizedBox(height: 8),
-                const Text('Dinheiro se aprende na prática',
-                    style: TextStyle(color: Color(0xFF9CA3AF))),
-              ]),
-            ),
-          ),
+        body: AnimatedBuilder(
+          animation: c,
+          builder: (_, __) {
+            final t = c.value * total;
+            final ta = ((t - 2.3) / 0.6).clamp(0.0, 1.0).toDouble();
+            final e = 1 - math.pow(1 - ta, 3).toDouble();
+            return Stack(children: [
+              Positioned.fill(child: CustomPaint(painter: _PiggyPainter(t))),
+              Align(
+                alignment: const Alignment(0, 0.4),
+                child: Opacity(
+                  opacity: e,
+                  child: Transform.translate(
+                    offset: Offset(0, 24 * (1 - e)),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text.rich(TextSpan(
+                          text: 'Grana',
+                          style: serif(36),
+                          children: [
+                            TextSpan(
+                                text: 'Lab',
+                                style: serif(36).copyWith(color: kGreenLight)),
+                          ])),
+                      const SizedBox(height: 8),
+                      const Text('Dinheiro se aprende na prática',
+                          style: TextStyle(color: Color(0xFF9CA3AF))),
+                    ]),
+                  ),
+                ),
+              ),
+            ]);
+          },
         ),
       );
+}
+
+class _PiggyPainter extends CustomPainter {
+  final double t; // segundos desde o início
+  _PiggyPainter(this.t);
+
+  static const starts = [0.4, 0.75, 1.1, 1.45];
+  static const offs = [-90.0, 70.0, -50.0, 100.0];
+  static const fall = 0.55;
+
+  double _cl(double v) => v.clamp(0.0, 1.0).toDouble();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width * 0.62 / 520;
+    final ax = size.width / 2, ay = size.height * 0.56;
+    final r = size.width * 0.058;
+    final slotY0 = ay + (126 - 540) * s;
+    final y0 = -r * 1.5, yEnd = slotY0 + r + 14;
+    final u0 = math.sqrt((slotY0 - y0) / (yEnd - y0));
+    final lands = [for (final st in starts) st + u0 * fall];
+
+    // brilho verde ao fundo
+    final glowC = Offset(ax, ay - 120 * s);
+    canvas.drawRect(
+        Offset.zero & size,
+        Paint()
+          ..shader = RadialGradient(colors: const [
+            Color(0x661B5E20),
+            Color(0x001B5E20)
+          ]).createShader(Rect.fromCircle(center: glowC, radius: size.width * 0.6)));
+
+    // pop de entrada e "amassadinha" a cada moeda
+    final pop = t < 0.5 ? 0.35 + 0.65 * _backOut(t / 0.5) : 1.0;
+    double a = 0;
+    for (final tl in lands) {
+      final dt = t - tl;
+      if (dt >= 0 && dt < 0.4) {
+        a += 0.075 * math.exp(-dt * 9) * math.cos(dt * 26);
+      }
+    }
+    final jMax = 70 * size.width / 1080;
+    final jt = lands.last + 0.3;
+    final ju = _cl((t - jt) / 0.45);
+    final jump = (ju > 0 && ju < 1) ? jMax * math.sin(math.pi * ju) : 0.0;
+    if (ju >= 1) {
+      final dt = t - (jt + 0.45);
+      a += 0.09 * math.exp(-dt * 10) * math.cos(dt * 26);
+    }
+    final sy = (1 - a) * pop, sx = (1 + a * 0.6) * pop;
+
+    // sombra no chão
+    canvas.drawOval(
+        Rect.fromCenter(
+            center: Offset(ax, ay + 10 * s),
+            width: 600 * s * pop,
+            height: 36 * s),
+        Paint()
+          ..color = Color.fromRGBO(0, 0, 0, 0.45 * (1 - 0.5 * _cl(jump / jMax)))
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
+
+    canvas.save();
+    canvas.translate(ax, ay - jump);
+    canvas.scale(s * sx, s * sy);
+    canvas.translate(-380, -540);
+    _bank(canvas);
+    canvas.restore();
+
+    // moedas: somem ao passar pela fenda
+    final slotX = ax + (370 - 380) * s * sx;
+    final slotY = ay - jump + (126 - 540) * s * sy;
+    canvas.save();
+    canvas.clipRect(Rect.fromLTRB(0, 0, size.width, slotY));
+    for (var i = 0; i < starts.length; i++) {
+      final u = (t - starts[i]) / fall;
+      if (u < 0 || u > 1.05) continue;
+      final y = y0 + (yEnd - y0) * u * u;
+      final x = slotX +
+          offs[i] * size.width / 1080 * math.pow(1 - _cl(u), 1.3).toDouble();
+      _coin(canvas, Offset(x, y), r, u * 3.4 * math.pi + i);
+    }
+    canvas.restore();
+  }
+
+  void _coin(Canvas c, Offset o, double r, double phase) {
+    final cw = math.cos(phase).abs();
+    final w = cw < 0.14 ? 0.14 : cw;
+    c.save();
+    c.translate(o.dx, o.dy);
+    final edge = r * (0.26 * (1 - w) + 0.1);
+    c.drawOval(
+        Rect.fromCenter(
+            center: Offset.zero, width: 2 * r * w + edge, height: 2 * r),
+        Paint()..color = const Color(0xFFB8860B));
+    c.drawOval(
+        Rect.fromCenter(center: Offset.zero, width: 2 * r * w, height: 2 * r),
+        Paint()..color = const Color(0xFFF5B301));
+    if (r * w > 6) {
+      c.drawOval(
+          Rect.fromCenter(
+              center: Offset.zero, width: 2 * r * w * 0.78, height: 2 * r * 0.78),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = r * 0.09
+            ..color = const Color(0xFFFFD54F));
+    }
+    if (cw > 0.55) {
+      final tp = TextPainter(
+        text: TextSpan(
+            text: '\$',
+            style: TextStyle(
+                color: const Color(0xFFB8860B),
+                fontSize: r * 1.25,
+                fontWeight: FontWeight.w800)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(c, Offset(-tp.width / 2, -tp.height / 2));
+    }
+    c.restore();
+  }
+
+  // Cofrinho desenhado em coordenadas locais (760 x 560, pés em y = 540)
+  void _bank(Canvas c) {
+    Paint f(Color col) => Paint()
+      ..isAntiAlias = true
+      ..color = col;
+    for (final x in [215.0, 445.0]) {
+      c.drawRRect(
+          RRect.fromLTRBR(x, 430, x + 85, 545, const Radius.circular(28)),
+          f(_g2));
+    }
+    c.drawPath(
+        Path()
+          ..moveTo(455, 150)
+          ..lineTo(505, 52)
+          ..lineTo(585, 160)
+          ..close(),
+        f(_g2));
+    c.drawPath(
+        Path()
+          ..moveTo(480, 145)
+          ..lineTo(510, 92)
+          ..lineTo(560, 152)
+          ..close(),
+        f(_g4));
+    c.drawArc(
+        const Rect.fromLTRB(55, 245, 155, 345),
+        1.4,
+        4.36,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 16
+          ..strokeCap = StrokeCap.round
+          ..color = _g2);
+    c.drawOval(const Rect.fromLTRB(120, 110, 640, 490), f(_g2));
+    c.drawOval(const Rect.fromLTRB(120, 110, 640, 455), f(kGreenLight));
+    c.drawOval(
+        const Rect.fromLTRB(190, 140, 420, 260),
+        Paint()
+          ..color = const Color(0x5566BB6A)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14));
+    c.drawOval(const Rect.fromLTRB(605, 245, 715, 385), f(_g2));
+    c.drawOval(const Rect.fromLTRB(612, 252, 700, 376), f(kGreenLight));
+    const nose = Color(0xFF0B1A10);
+    c.drawOval(const Rect.fromLTRB(650, 288, 666, 320), f(nose));
+    c.drawOval(const Rect.fromLTRB(650, 326, 666, 358), f(nose));
+    c.drawOval(const Rect.fromLTRB(488, 216, 526, 254), f(nose));
+    c.drawOval(const Rect.fromLTRB(502, 222, 512, 232), f(Colors.white));
+    c.drawOval(const Rect.fromLTRB(300, 112, 440, 140), f(kDark));
+  }
+
+  @override
+  bool shouldRepaint(_PiggyPainter old) => old.t != t;
 }
 
 // ------------------------------------------------------------------ AUTH
