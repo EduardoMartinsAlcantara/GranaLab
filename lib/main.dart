@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -852,6 +853,8 @@ class _HomePageState extends State<HomePage> {
             NavigationDestination(
                 icon: Icon(Icons.menu_book_outlined), label: 'Aulas'),
             NavigationDestination(
+                icon: Icon(Icons.trending_up_rounded), label: 'Investir'),
+            NavigationDestination(
                 icon: Icon(Icons.person_outline), label: 'Perfil'),
           ],
         ),
@@ -859,7 +862,9 @@ class _HomePageState extends State<HomePage> {
             ? const CarteiraTab()
             : nav == 2
                 ? const AulasTab()
-                : SafeArea(
+                : nav == 3
+                    ? const InvestirTab()
+                    : SafeArea(
                     bottom: false,
                     child: Column(children: [
                       Padding(
@@ -1676,5 +1681,326 @@ class _QuizPageState extends State<QuizPage> {
             Expanded(child: Container(decoration: sheetDeco, child: _corpo())),
           ]),
         ),
+      );
+}
+
+
+// ----------------------------------------------------------- INVESTIMENTOS
+const produtos = [
+  ('Poupança', 0.006, 'Baixo risco e rende pouco. Bom para começar.'),
+  ('CDB', 0.009, 'Você empresta ao banco e ele paga mais que a poupança.'),
+  ('Tesouro Selic', 0.010, 'Título do governo, seguro e com boa rentabilidade.'),
+];
+
+double _valorAtual(double v, double taxa, DateTime desde) {
+  final min = DateTime.now().difference(desde).inMilliseconds / 60000;
+  return v * math.pow(1 + taxa, math.min(math.max(min, 0.0), 120.0)).toDouble();
+}
+
+class InvestirTab extends StatefulWidget {
+  const InvestirTab({super.key});
+  @override
+  State<InvestirTab> createState() => _InvestirTabState();
+}
+
+class _InvestirTabState extends State<InvestirTab> {
+  List<Map<String, dynamic>> itens = [];
+  double saldo = 0;
+  bool carregando = true;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _carrega();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _carrega() async {
+    try {
+      final u = supa.auth.currentUser!;
+      final p =
+          await supa.from('profiles').select('saldo').eq('id', u.id).single();
+      final t = await supa
+          .from('investimentos')
+          .select()
+          .filter('resgatado_em', 'is', null)
+          .order('criado_em', ascending: false);
+      if (!mounted) return;
+      setState(() {
+        saldo = (p['saldo'] as num).toDouble();
+        itens = List<Map<String, dynamic>>.from(t);
+        carregando = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => carregando = false);
+    }
+  }
+
+  Future<void> _aplicar(String produto) async {
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (_) => NovaAplicacao(produto: produto, saldo: saldo),
+    );
+    if (ok == true) _carrega();
+  }
+
+  Future<void> _resgatar(Map<String, dynamic> m) async {
+    try {
+      final v = await supa.rpc('resgatar', params: {'p_id': m['id']});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Resgate de ${_brl((v as num).toDouble())} feito!')));
+      _carrega();
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Widget _titulo(String t) => Padding(
+        padding: const EdgeInsets.only(bottom: 10, top: 6),
+        child: Text(t,
+            style: const TextStyle(
+                color: kText, fontSize: 17, fontWeight: FontWeight.w800)),
+      );
+
+  BoxDecoration get _cardDeco => BoxDecoration(
+      color: Colors.white, borderRadius: BorderRadius.circular(20));
+
+  Widget _produto((String, double, String) p) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: _cardDeco,
+        child: Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(p.$1,
+                  style: const TextStyle(
+                      color: kText, fontWeight: FontWeight.w700, fontSize: 15)),
+              const SizedBox(height: 2),
+              Text(p.$3, style: const TextStyle(color: kMuted, fontSize: 12)),
+              const SizedBox(height: 6),
+              Text('${(p.$2 * 100).toStringAsFixed(1).replaceAll('.', ',')}% ao mês',
+                  style: const TextStyle(
+                      color: kGreen, fontSize: 13, fontWeight: FontWeight.w700)),
+            ]),
+          ),
+          const SizedBox(width: 12),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: kGreen),
+            onPressed: () => _aplicar(p.$1),
+            child: const Text('Aplicar'),
+          ),
+        ]),
+      );
+
+  Widget _aplicacao(Map<String, dynamic> m) {
+    final v = (m['valor'] as num).toDouble();
+    final atual = _valorAtual(v, (m['taxa'] as num).toDouble(),
+        DateTime.parse(m['criado_em'] as String));
+    final lucro = atual - v;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: _cardDeco,
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(m['produto'] as String,
+                style: const TextStyle(
+                    color: kText, fontWeight: FontWeight.w700, fontSize: 15)),
+            Text('Aplicado: ${_brl(v)}',
+                style: const TextStyle(color: kMuted, fontSize: 12)),
+            const SizedBox(height: 4),
+            Text(_brl(atual),
+                style: const TextStyle(
+                    color: kText, fontWeight: FontWeight.w800, fontSize: 18)),
+            Text('+${_brl(lucro)} de rendimento',
+                style: const TextStyle(
+                    color: kGreen, fontSize: 12, fontWeight: FontWeight.w600)),
+          ]),
+        ),
+        OutlinedButton(
+            onPressed: () => _resgatar(m), child: const Text('Resgatar')),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var investido = 0.0, atual = 0.0;
+    for (final m in itens) {
+      final v = (m['valor'] as num).toDouble();
+      investido += v;
+      atual += _valorAtual(v, (m['taxa'] as num).toDouble(),
+          DateTime.parse(m['criado_em'] as String));
+    }
+    return SafeArea(
+      bottom: false,
+      child: Column(children: [
+        sheetTop('Investimentos', sub: 'Simulação: 1 minuto = 1 mês'),
+        Expanded(
+          child: Container(
+            decoration: sheetDeco,
+            child: carregando
+                ? const Center(child: CircularProgressIndicator())
+                : ListView(padding: const EdgeInsets.all(20), children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(24),
+                        gradient: const LinearGradient(
+                            colors: [kGreenLight, kGreen],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight),
+                      ),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Total investido agora',
+                                style: TextStyle(color: Color(0xCCFFFFFF))),
+                            const SizedBox(height: 6),
+                            Text(_brl(atual),
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.w800)),
+                            Text(
+                                'Rendimento: +${_brl(atual - investido)}  ·  Saldo livre: ${_brl(saldo)}',
+                                style: const TextStyle(
+                                    color: Color(0xCCFFFFFF), fontSize: 12)),
+                          ]),
+                    ),
+                    _titulo('Onde investir'),
+                    for (final p in produtos) _produto(p),
+                    _titulo('Minhas aplicações'),
+                    if (itens.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 16),
+                        child: Text('Você ainda não aplicou nada.',
+                            style: TextStyle(color: kMuted)),
+                      )
+                    else
+                      for (final m in itens) _aplicacao(m),
+                  ]),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class NovaAplicacao extends StatefulWidget {
+  final String produto;
+  final double saldo;
+  const NovaAplicacao({super.key, required this.produto, required this.saldo});
+  @override
+  State<NovaAplicacao> createState() => _NovaAplicacaoState();
+}
+
+class _NovaAplicacaoState extends State<NovaAplicacao> {
+  final _valor = TextEditingController();
+  String? erro;
+  bool loading = false;
+
+  @override
+  void dispose() {
+    _valor.dispose();
+    super.dispose();
+  }
+
+  Future<void> _salvar() async {
+    final v = double.tryParse(_valor.text.trim().replaceAll(',', '.'));
+    if (v == null || v <= 0) {
+      setState(() => erro = 'Digite um valor maior que zero.');
+      return;
+    }
+    if (v > widget.saldo) {
+      setState(() => erro = 'Saldo insuficiente.');
+      return;
+    }
+    setState(() {
+      loading = true;
+      erro = null;
+    });
+    try {
+      await supa.rpc('aplicar',
+          params: {'p_produto': widget.produto, 'p_valor': v});
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on PostgrestException catch (e) {
+      setState(() => erro = e.message);
+    } catch (_) {
+      setState(() => erro = 'Sem conexão. Tente de novo.');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(
+            24, 24, 24, 24 + MediaQuery.of(context).viewInsets.bottom),
+        child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Aplicar em ${widget.produto}',
+                  style: const TextStyle(
+                      color: kText, fontSize: 18, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text('Saldo disponível: ${_brl(widget.saldo)}',
+                  style: const TextStyle(color: kMuted)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _valor,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: campo('Valor (ex: 100,00)'),
+              ),
+              if (erro != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(erro!,
+                      style: const TextStyle(color: kRed, fontSize: 13)),
+                ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: kGreen,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: loading ? null : _salvar,
+                  child: loading
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('Confirmar aplicação',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ]),
       );
 }
