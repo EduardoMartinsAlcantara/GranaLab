@@ -1697,6 +1697,12 @@ double _valorAtual(double v, double taxa, DateTime desde) {
   return v * math.pow(1 + taxa, math.min(math.max(min, 0.0), 120.0)).toDouble();
 }
 
+const categoriasInv = ['Renda fixa', 'Ações', 'FIIs', 'Bitcoin'];
+const _tiposInv = [null, 'acao', 'fii', 'cripto'];
+
+String _pct(double v) =>
+    '${v >= 0 ? '+' : ''}${v.toStringAsFixed(2).replaceAll('.', ',')}%';
+
 class InvestirTab extends StatefulWidget {
   const InvestirTab({super.key});
   @override
@@ -1704,8 +1710,10 @@ class InvestirTab extends StatefulWidget {
 }
 
 class _InvestirTabState extends State<InvestirTab> {
-  List<Map<String, dynamic>> itens = [];
+  List<Map<String, dynamic>> itens = [], ativos = [], posicoes = [];
+  Map<String, double> preco = {};
   double saldo = 0;
+  int cat = 0, tick = 0;
   bool carregando = true;
   Timer? _timer;
 
@@ -1714,7 +1722,10 @@ class _InvestirTabState extends State<InvestirTab> {
     super.initState();
     _carrega();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      tick++;
+      if (tick % 5 == 0) _precos();
+      setState(() {});
     });
   }
 
@@ -1722,6 +1733,20 @@ class _InvestirTabState extends State<InvestirTab> {
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _precos() async {
+    try {
+      final r = await supa.rpc('listar_ativos');
+      if (!mounted) return;
+      final l = List<Map<String, dynamic>>.from(r);
+      setState(() {
+        ativos = l;
+        preco = {
+          for (final a in l) a['ticker'] as String: (a['preco'] as num).toDouble()
+        };
+      });
+    } catch (_) {}
   }
 
   Future<void> _carrega() async {
@@ -1734,35 +1759,42 @@ class _InvestirTabState extends State<InvestirTab> {
           .select()
           .filter('resgatado_em', 'is', null)
           .order('criado_em', ascending: false);
+      final po = await supa
+          .from('posicoes')
+          .select()
+          .filter('vendido_em', 'is', null)
+          .order('criado_em', ascending: false);
       if (!mounted) return;
       setState(() {
         saldo = (p['saldo'] as num).toDouble();
         itens = List<Map<String, dynamic>>.from(t);
+        posicoes = List<Map<String, dynamic>>.from(po);
         carregando = false;
       });
     } catch (_) {
       if (mounted) setState(() => carregando = false);
     }
+    _precos();
   }
 
-  Future<void> _aplicar(String produto) async {
+  Future<void> _abrirCompra(String nome, {String? ticker}) async {
     final ok = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-      builder: (_) => NovaAplicacao(produto: produto, saldo: saldo),
+      builder: (_) => NovaAplicacao(produto: nome, ticker: ticker, saldo: saldo),
     );
     if (ok == true) _carrega();
   }
 
-  Future<void> _resgatar(Map<String, dynamic> m) async {
+  Future<void> _sacar(String rpc, Map<String, dynamic> m, String verbo) async {
     try {
-      final v = await supa.rpc('resgatar', params: {'p_id': m['id']});
+      final v = await supa.rpc(rpc, params: {'p_id': m['id']});
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Resgate de ${_brl((v as num).toDouble())} feito!')));
+          SnackBar(content: Text('$verbo de ${_brl((v as num).toDouble())} feito!')));
       _carrega();
     } on PostgrestException catch (e) {
       if (!mounted) return;
@@ -1781,62 +1813,95 @@ class _InvestirTabState extends State<InvestirTab> {
   BoxDecoration get _cardDeco => BoxDecoration(
       color: Colors.white, borderRadius: BorderRadius.circular(20));
 
-  Widget _produto((String, double, String) p) => Container(
+  Widget _linhaCard(
+          {required String titulo,
+          required String sub,
+          required String destaque,
+          required Color corDestaque,
+          required String botao,
+          required VoidCallback onTap,
+          bool contorno = false}) =>
+      Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: _cardDeco,
         child: Row(children: [
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(p.$1,
+              Text(titulo,
                   style: const TextStyle(
                       color: kText, fontWeight: FontWeight.w700, fontSize: 15)),
               const SizedBox(height: 2),
-              Text(p.$3, style: const TextStyle(color: kMuted, fontSize: 12)),
+              Text(sub, style: const TextStyle(color: kMuted, fontSize: 12)),
               const SizedBox(height: 6),
-              Text('${(p.$2 * 100).toStringAsFixed(1).replaceAll('.', ',')}% ao mês',
-                  style: const TextStyle(
-                      color: kGreen, fontSize: 13, fontWeight: FontWeight.w700)),
+              Text(destaque,
+                  style: TextStyle(
+                      color: corDestaque,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700)),
             ]),
           ),
           const SizedBox(width: 12),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: kGreen),
-            onPressed: () => _aplicar(p.$1),
-            child: const Text('Aplicar'),
-          ),
+          contorno
+              ? OutlinedButton(onPressed: onTap, child: Text(botao))
+              : FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: kGreen),
+                  onPressed: onTap,
+                  child: Text(botao)),
         ]),
       );
+
+  Widget _produto((String, double, String) p) => _linhaCard(
+        titulo: p.$1,
+        sub: p.$3,
+        destaque: '${(p.$2 * 100).toStringAsFixed(1).replaceAll('.', ',')}% ao mês',
+        corDestaque: kGreen,
+        botao: 'Aplicar',
+        onTap: () => _abrirCompra(p.$1),
+      );
+
+  Widget _ativo(Map<String, dynamic> a) {
+    final pr = (a['preco'] as num).toDouble();
+    final v = (pr / (a['preco_base'] as num).toDouble() - 1) * 100;
+    return _linhaCard(
+      titulo: '${a['ticker']}  ·  ${_brl(pr)}',
+      sub: a['nome'] as String,
+      destaque: '${_pct(v)} vs. preço de referência',
+      corDestaque: v >= 0 ? kGreen : kRed,
+      botao: 'Comprar',
+      onTap: () => _abrirCompra(a['nome'] as String, ticker: a['ticker'] as String),
+    );
+  }
 
   Widget _aplicacao(Map<String, dynamic> m) {
     final v = (m['valor'] as num).toDouble();
     final atual = _valorAtual(v, (m['taxa'] as num).toDouble(),
         DateTime.parse(m['criado_em'] as String));
+    return _linhaCard(
+      titulo: m['produto'] as String,
+      sub: 'Aplicado: ${_brl(v)}  ·  Agora: ${_brl(atual)}',
+      destaque: '+${_brl(atual - v)} de rendimento',
+      corDestaque: kGreen,
+      botao: 'Resgatar',
+      contorno: true,
+      onTap: () => _sacar('resgatar', m, 'Resgate'),
+    );
+  }
+
+  Widget _posicao(Map<String, dynamic> m) {
+    final t = m['ticker'] as String;
+    final v = (m['valor_investido'] as num).toDouble();
+    final q = (m['quantidade'] as num).toDouble();
+    final atual = q * (preco[t] ?? v / q);
     final lucro = atual - v;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: _cardDeco,
-      child: Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(m['produto'] as String,
-                style: const TextStyle(
-                    color: kText, fontWeight: FontWeight.w700, fontSize: 15)),
-            Text('Aplicado: ${_brl(v)}',
-                style: const TextStyle(color: kMuted, fontSize: 12)),
-            const SizedBox(height: 4),
-            Text(_brl(atual),
-                style: const TextStyle(
-                    color: kText, fontWeight: FontWeight.w800, fontSize: 18)),
-            Text('+${_brl(lucro)} de rendimento',
-                style: const TextStyle(
-                    color: kGreen, fontSize: 12, fontWeight: FontWeight.w600)),
-          ]),
-        ),
-        OutlinedButton(
-            onPressed: () => _resgatar(m), child: const Text('Resgatar')),
-      ]),
+    return _linhaCard(
+      titulo: '$t  ·  ${q.toStringAsFixed(q < 1 ? 6 : 4)} un.',
+      sub: 'Investido: ${_brl(v)}  ·  Agora: ${_brl(atual)}',
+      destaque: '${lucro >= 0 ? '+' : '-'}${_brl(lucro.abs())} (${_pct(lucro / v * 100)})',
+      corDestaque: lucro >= 0 ? kGreen : kRed,
+      botao: 'Vender',
+      contorno: true,
+      onTap: () => _sacar('vender_ativo', m, 'Venda'),
     );
   }
 
@@ -1849,10 +1914,17 @@ class _InvestirTabState extends State<InvestirTab> {
       atual += _valorAtual(v, (m['taxa'] as num).toDouble(),
           DateTime.parse(m['criado_em'] as String));
     }
+    for (final m in posicoes) {
+      final v = (m['valor_investido'] as num).toDouble();
+      final q = (m['quantidade'] as num).toDouble();
+      investido += v;
+      atual += q * (preco[m['ticker'] as String] ?? v / q);
+    }
+    final lista = ativos.where((a) => a['tipo'] == _tiposInv[cat]).toList();
     return SafeArea(
       bottom: false,
       child: Column(children: [
-        sheetTop('Investimentos', sub: 'Simulação: 1 minuto = 1 mês'),
+        sheetTop('Investimentos', sub: 'Simulação com preços fictícios'),
         Expanded(
           child: Container(
             decoration: sheetDeco,
@@ -1881,22 +1953,51 @@ class _InvestirTabState extends State<InvestirTab> {
                                     fontSize: 32,
                                     fontWeight: FontWeight.w800)),
                             Text(
-                                'Rendimento: +${_brl(atual - investido)}  ·  Saldo livre: ${_brl(saldo)}',
+                                'Resultado: ${atual >= investido ? '+' : '-'}${_brl((atual - investido).abs())}  ·  Saldo livre: ${_brl(saldo)}',
                                 style: const TextStyle(
                                     color: Color(0xCCFFFFFF), fontSize: 12)),
                           ]),
                     ),
-                    _titulo('Onde investir'),
-                    for (final p in produtos) _produto(p),
+                    SizedBox(
+                      height: 40,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: categoriasInv.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (_, i) => ChoiceChip(
+                          label: Text(categoriasInv[i]),
+                          selected: cat == i,
+                          showCheckmark: false,
+                          selectedColor: kDark,
+                          labelStyle: TextStyle(
+                              color: cat == i ? Colors.white : kText,
+                              fontWeight: FontWeight.w600),
+                          onSelected: (_) => setState(() => cat = i),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (cat == 0)
+                      for (final p in produtos) _produto(p)
+                    else if (lista.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('Carregando preços...',
+                            style: TextStyle(color: kMuted)),
+                      )
+                    else
+                      for (final a in lista) _ativo(a),
                     _titulo('Minhas aplicações'),
-                    if (itens.isEmpty)
+                    if (itens.isEmpty && posicoes.isEmpty)
                       const Padding(
                         padding: EdgeInsets.only(bottom: 16),
                         child: Text('Você ainda não aplicou nada.',
                             style: TextStyle(color: kMuted)),
                       )
-                    else
+                    else ...[
                       for (final m in itens) _aplicacao(m),
+                      for (final m in posicoes) _posicao(m),
+                    ],
                   ]),
           ),
         ),
@@ -1907,8 +2008,10 @@ class _InvestirTabState extends State<InvestirTab> {
 
 class NovaAplicacao extends StatefulWidget {
   final String produto;
+  final String? ticker;
   final double saldo;
-  const NovaAplicacao({super.key, required this.produto, required this.saldo});
+  const NovaAplicacao(
+      {super.key, required this.produto, this.ticker, required this.saldo});
   @override
   State<NovaAplicacao> createState() => _NovaAplicacaoState();
 }
@@ -1939,8 +2042,13 @@ class _NovaAplicacaoState extends State<NovaAplicacao> {
       erro = null;
     });
     try {
-      await supa.rpc('aplicar',
-          params: {'p_produto': widget.produto, 'p_valor': v});
+      if (widget.ticker != null) {
+        await supa.rpc('comprar_ativo',
+            params: {'p_ticker': widget.ticker, 'p_valor': v});
+      } else {
+        await supa.rpc('aplicar',
+            params: {'p_produto': widget.produto, 'p_valor': v});
+      }
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } on PostgrestException catch (e) {
