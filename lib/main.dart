@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -641,6 +642,8 @@ class _HomePageState extends State<HomePage> {
   double saldo = 500;
   List<Map<String, dynamic>> trans = [], aulas = [];
   Set<int> feitas = {};
+  String? turmaNome, erroTurma;
+  final _cod = TextEditingController();
 
   @override
   void initState() {
@@ -674,6 +677,11 @@ class _HomePageState extends State<HomePage> {
         aulas = List<Map<String, dynamic>>.from(a);
         feitas = {for (final x in g) x['aula_id'] as int};
       });
+    } catch (_) {}
+    try {
+      final r = await supa.rpc('minha_turma');
+      if (!mounted) return;
+      setState(() => turmaNome = r as String?);
     } catch (_) {}
   }
 
@@ -755,6 +763,51 @@ class _HomePageState extends State<HomePage> {
     ]));
   }
 
+  Future<void> _entrar() async {
+    try {
+      final r = await supa
+          .rpc('entrar_turma', params: {'p_codigo': _cod.text.trim()});
+      if (!mounted) return;
+      setState(() {
+        turmaNome = r as String;
+        erroTurma = null;
+      });
+    } on PostgrestException catch (e) {
+      setState(() => erroTurma = e.message);
+    }
+  }
+
+  Widget _turma() =>
+      _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _titulo(turmaNome == null ? 'Entrar em uma turma' : 'Sua turma'),
+        if (turmaNome != null)
+          Text(turmaNome!,
+              style: const TextStyle(
+                  color: kGreen, fontWeight: FontWeight.w700, fontSize: 16))
+        else ...[
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _cod,
+                textCapitalization: TextCapitalization.characters,
+                decoration: campo('Código do professor'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: kGreen),
+                onPressed: _entrar,
+                child: const Text('Entrar')),
+          ]),
+          if (erroTurma != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(erroTurma!,
+                  style: const TextStyle(color: kRed, fontSize: 13)),
+            ),
+        ],
+      ]));
+
   Widget _continuar() {
     if (aulas.isEmpty) return const SizedBox.shrink();
     final prox = aulas.firstWhere((a) => !feitas.contains(a['id']),
@@ -790,7 +843,7 @@ class _HomePageState extends State<HomePage> {
                   .push(fade(LessonPage(aula: prox, feita: false)));
               _carrega();
             },
-            child: const Text('Abrir aula (+R\$ 25,00)'),
+            child: Text('Abrir aula (+${_brl((prox['recompensa'] as num?)?.toDouble() ?? 25)})'),
           ),
         ),
       ],
@@ -864,7 +917,11 @@ class _HomePageState extends State<HomePage> {
                 ? const AulasTab()
                 : nav == 3
                     ? const InvestirTab()
-                    : SafeArea(
+                    : nav == 4
+                        ? const PerfilTab()
+                        : papel == 'professor'
+                            ? const ProfessorTab()
+                            : SafeArea(
                     bottom: false,
                     child: Column(children: [
                       Padding(
@@ -949,6 +1006,7 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                 ),
                                 Reveal(delay: 200, child: _gastos()),
+                                Reveal(delay: 250, child: _turma()),
                                 Reveal(delay: 300, child: _continuar()),
                                 Reveal(delay: 400, child: _ultimas()),
                               ]),
@@ -1309,7 +1367,7 @@ class AulasTab extends StatefulWidget {
 class _AulasTabState extends State<AulasTab> {
   List<Map<String, dynamic>> aulas = [];
   Map<int, Map<String, dynamic>> prog = {};
-  bool carregando = true;
+  bool carregando = true, professor = false;
 
   @override
   void initState() {
@@ -1321,8 +1379,14 @@ class _AulasTabState extends State<AulasTab> {
     try {
       final a = await supa.from('aulas').select().order('id');
       final p = await supa.from('progresso').select();
+      final me = await supa
+          .from('profiles')
+          .select('papel')
+          .eq('id', supa.auth.currentUser!.id)
+          .single();
       if (!mounted) return;
       setState(() {
+        professor = me['papel'] == 'professor';
         aulas = List<Map<String, dynamic>>.from(a);
         prog = {
           for (final x in p) x['aula_id'] as int: Map<String, dynamic>.from(x)
@@ -1331,6 +1395,39 @@ class _AulasTabState extends State<AulasTab> {
       });
     } catch (_) {
       if (mounted) setState(() => carregando = false);
+    }
+  }
+
+  Future<void> _criarAula() async {
+    final ok = await Navigator.of(context)
+        .push<bool>(MaterialPageRoute(builder: (_) => const NovaAulaPage()));
+    if (ok == true) _carrega();
+  }
+
+  Future<void> _excluir(Map<String, dynamic> a) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir aula?'),
+        content: Text('"${a['titulo']}" será removida para todos os alunos.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Excluir')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await supa.rpc('excluir_aula', params: {'p_id': a['id']});
+      _carrega();
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
@@ -1353,6 +1450,23 @@ class _AulasTabState extends State<AulasTab> {
             child: carregando
                 ? const Center(child: CircularProgressIndicator())
                 : ListView(padding: const EdgeInsets.all(20), children: [
+                    if (professor)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: SizedBox(
+                          height: 52,
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: kGreen,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14)),
+                            ),
+                            onPressed: _criarAula,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Criar aula'),
+                          ),
+                        ),
+                      ),
                     for (var i = 0; i < aulas.length; i++)
                       Reveal(
                         key: ValueKey(aulas[i]['id']),
@@ -1393,7 +1507,8 @@ class _AulasTabState extends State<AulasTab> {
                   style: const TextStyle(
                       color: kText, fontWeight: FontWeight.w700, fontSize: 15)),
               const SizedBox(height: 2),
-              Text(a['resumo'] as String,
+              Text(
+                  '${a['resumo']}  ·  +${_brl((a['recompensa'] as num?)?.toDouble() ?? 25)}',
                   style: const TextStyle(color: kMuted, fontSize: 12)),
               if (p != null)
                 Padding(
@@ -1404,6 +1519,14 @@ class _AulasTabState extends State<AulasTab> {
                 ),
             ]),
           ),
+          if (a['autor_id'] != null && a['autor_id'] == supa.auth.currentUser?.id)
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Excluir',
+              onPressed: () => _excluir(a),
+              icon: const Icon(Icons.delete_outline_rounded,
+                  color: kMuted, size: 20),
+            ),
           const Icon(Icons.chevron_right_rounded, color: kMuted),
         ]),
       ),
@@ -1457,7 +1580,7 @@ class LessonPage extends StatelessWidget {
                         onPressed: () => Navigator.of(context)
                             .pushReplacement(fade(QuizPage(aula: aula, feita: feita))),
                         child: Text(
-                            feita ? 'Refazer o quiz' : 'Fazer o quiz (+R\$ 25,00)',
+                            feita ? 'Continuar' : 'Concluir aula (+${_brl((aula['recompensa'] as num?)?.toDouble() ?? 25)})',
                             style: const TextStyle(
                                 fontSize: 16, fontWeight: FontWeight.w600)),
                       ),
@@ -1484,6 +1607,7 @@ class _QuizPageState extends State<QuizPage> {
   int i = 0, acertos = 0, certas = 0;
   int? sel;
   bool carregando = true, enviando = false, fim = false;
+  double get rec => (widget.aula['recompensa'] as num?)?.toDouble() ?? 25;
   String? erro;
 
   @override
@@ -1506,6 +1630,28 @@ class _QuizPageState extends State<QuizPage> {
       });
     } catch (_) {
       if (mounted) setState(() => carregando = false);
+    }
+  }
+
+  Future<void> _concluirSemQuiz() async {
+    setState(() {
+      enviando = true;
+      erro = null;
+    });
+    try {
+      await supa.rpc('concluir_aula',
+          params: {'p_aula': widget.aula['id'], 'p_acertos': 0});
+      if (!mounted) return;
+      setState(() {
+        acertos = 0;
+        fim = true;
+      });
+    } on PostgrestException catch (e) {
+      setState(() => erro = e.message);
+    } catch (_) {
+      setState(() => erro = 'Sem conexão. Tente de novo.');
+    } finally {
+      if (mounted) setState(() => enviando = false);
     }
   }
 
@@ -1578,15 +1724,44 @@ class _QuizPageState extends State<QuizPage> {
 
   Widget _corpo() {
     if (carregando) return const Center(child: CircularProgressIndicator());
-    if (perguntas.isEmpty) {
-      return const Center(child: Text('Sem perguntas nesta aula.'));
+    if (perguntas.isEmpty && !fim) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Icon(Icons.menu_book_rounded, size: 64, color: kGreen),
+          const SizedBox(height: 16),
+          const Text(
+              'Esta aula não tem quiz. Quando terminar de ler, conclua para ganhar a recompensa.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: kMuted, fontSize: 15)),
+          if (erro != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(erro!, style: const TextStyle(color: kRed)),
+            ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: kGreen,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
+              onPressed: enviando ? null : _concluirSemQuiz,
+              child: Text('Concluir aula (+${_brl(rec)})'),
+            ),
+          ),
+        ]),
+      );
     }
     if (fim) {
       final ok = acertos * 100 >= perguntas.length * 60;
       final msg = ok
           ? (widget.feita
               ? 'Aula concluída. Sem novo prêmio, pois você já tinha concluído.'
-              : 'Aula concluída! Você ganhou R\$ 25,00 de saldo virtual.')
+              : 'Aula concluída! Você ganhou ${_brl(rec)} de saldo virtual.')
           : 'Você precisa de pelo menos 60% para concluir. Releia a aula e tente de novo!';
       return Padding(
         padding: const EdgeInsets.all(24),
@@ -1594,7 +1769,7 @@ class _QuizPageState extends State<QuizPage> {
           Icon(ok ? Icons.emoji_events_rounded : Icons.refresh_rounded,
               size: 72, color: ok ? const Color(0xFFF5B301) : kMuted),
           const SizedBox(height: 16),
-          Text('Você acertou $acertos de ${perguntas.length}',
+          Text(perguntas.isEmpty ? 'Aula concluída!' : 'Você acertou $acertos de ${perguntas.length}',
               style: const TextStyle(
                   color: kText, fontSize: 22, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
@@ -2110,5 +2285,579 @@ class _NovaAplicacaoState extends State<NovaAplicacao> {
                 ),
               ),
             ]),
+      );
+}
+
+
+// ---------------------------------------------------------------- PERFIL
+class PerfilTab extends StatefulWidget {
+  const PerfilTab({super.key});
+  @override
+  State<PerfilTab> createState() => _PerfilTabState();
+}
+
+class _PerfilTabState extends State<PerfilTab> {
+  String nome = '', papel = 'aluno';
+  double saldo = 0;
+  int feitas = 0, totalAulas = 0, movs = 0;
+  bool carregando = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _carrega();
+  }
+
+  String get nivel {
+    if (totalAulas > 0 && feitas >= totalAulas) return 'Mestre das Finanças';
+    if (feitas >= 2) return 'Investidor';
+    if (feitas >= 1) return 'Poupador';
+    return 'Aprendiz';
+  }
+
+  Future<void> _carrega() async {
+    try {
+      final u = supa.auth.currentUser!;
+      final p = await supa.from('profiles').select().eq('id', u.id).single();
+      final a = await supa.from('aulas').select('id');
+      final g =
+          await supa.from('progresso').select('aula_id').eq('concluida', true);
+      final t = await supa.from('transacoes').select('id');
+      if (!mounted) return;
+      setState(() {
+        nome = p['nome'] as String;
+        papel = p['papel'] as String;
+        saldo = (p['saldo'] as num).toDouble();
+        totalAulas = a.length;
+        feitas = g.length;
+        movs = t.length;
+        carregando = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => carregando = false);
+    }
+  }
+
+  Future<void> _editar() async {
+    final c = TextEditingController(text: nome);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Editar nome'),
+        content: TextField(controller: c, decoration: campo('Seu nome')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Salvar')),
+        ],
+      ),
+    );
+    final novo = c.text.trim();
+    if (ok != true || novo == nome) return;
+    try {
+      await supa.rpc('atualizar_nome', params: {'p_nome': novo});
+      _carrega();
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _sair() async {
+    await supa.auth.signOut();
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(fade(const AuthPage()));
+  }
+
+  Widget _info(IconData icon, String label, String valor) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(children: [
+          Icon(icon, color: kGreen, size: 22),
+          const SizedBox(width: 14),
+          Expanded(
+              child: Text(label,
+                  style: const TextStyle(color: kMuted, fontSize: 14))),
+          Text(valor,
+              style: const TextStyle(
+                  color: kText, fontWeight: FontWeight.w700, fontSize: 14)),
+        ]),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final email = supa.auth.currentUser?.email ?? '';
+    return SafeArea(
+      bottom: false,
+      child: Column(children: [
+        const SizedBox(height: 24),
+        CircleAvatar(
+          radius: 40,
+          backgroundColor: kGreen,
+          child: Text(nome.isEmpty ? '?' : nome[0].toUpperCase(),
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 34, fontWeight: FontWeight.w800)),
+        ),
+        const SizedBox(height: 12),
+        Text(nome, style: serif(28)),
+        const SizedBox(height: 4),
+        Text(email, style: const TextStyle(color: Color(0xFF9CA3AF))),
+        const SizedBox(height: 20),
+        Expanded(
+          child: Container(
+            decoration: sheetDeco,
+            child: carregando
+                ? const Center(child: CircularProgressIndicator())
+                : ListView(padding: const EdgeInsets.all(20), children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20)),
+                      child: Column(children: [
+                        _info(Icons.badge_outlined, 'Tipo de conta',
+                            papel == 'professor' ? 'Professor' : 'Aluno'),
+                        _info(Icons.workspace_premium_outlined, 'Nível', nivel),
+                        _info(Icons.menu_book_outlined, 'Aulas concluídas',
+                            '$feitas de $totalAulas'),
+                        _info(Icons.receipt_long_outlined,
+                            'Movimentações registradas', '$movs'),
+                        _info(Icons.savings_outlined, 'Saldo virtual', _brl(saldo)),
+                      ]),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      height: 50,
+                      child: OutlinedButton.icon(
+                        onPressed: _editar,
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('Editar nome'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: _sair,
+                      icon: const Icon(Icons.logout_rounded, color: kRed),
+                      label: const Text('Sair da conta',
+                          style: TextStyle(color: kRed)),
+                    ),
+                  ]),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+
+// ------------------------------------------------------------- PROFESSOR
+class ProfessorTab extends StatefulWidget {
+  const ProfessorTab({super.key});
+  @override
+  State<ProfessorTab> createState() => _ProfessorTabState();
+}
+
+class _ProfessorTabState extends State<ProfessorTab> {
+  List<Map<String, dynamic>> turmas = [];
+  bool carregando = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _carrega();
+  }
+
+  Future<void> _carrega() async {
+    try {
+      final r = await supa.rpc('listar_turmas');
+      if (!mounted) return;
+      setState(() {
+        turmas = List<Map<String, dynamic>>.from(r);
+        carregando = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => carregando = false);
+    }
+  }
+
+  Future<void> _criar() async {
+    final c = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Nova turma'),
+        content: TextField(
+            controller: c, decoration: campo('Nome (ex: 3º ano A)')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Criar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final cod = await supa.rpc('criar_turma', params: {'p_nome': c.text.trim()});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Turma criada! Código: $cod')));
+      _carrega();
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        bottom: false,
+        child: Column(children: [
+          sheetTop('Suas turmas', sub: 'Acompanhe o progresso dos alunos'),
+          Expanded(
+            child: Container(
+              decoration: sheetDeco,
+              child: carregando
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView(padding: const EdgeInsets.all(20), children: [
+                      SizedBox(
+                        height: 52,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: kGreen,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: _criar,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Criar turma'),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (turmas.isEmpty)
+                        const Text(
+                            'Você ainda não tem turmas. Crie uma e passe o código para os alunos.',
+                            style: TextStyle(color: kMuted)),
+                      for (final t in turmas)
+                        GestureDetector(
+                          onTap: () async {
+                            await Navigator.of(context)
+                                .push(fade(TurmaPage(turma: t)));
+                            _carrega();
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20)),
+                            child: Row(children: [
+                              Expanded(
+                                child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(t['nome'] as String,
+                                          style: const TextStyle(
+                                              color: kText,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 15)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                          '${t['alunos']} alunos  ·  Código: ${t['codigo']}',
+                                          style: const TextStyle(
+                                              color: kMuted, fontSize: 12)),
+                                    ]),
+                              ),
+                              const Icon(Icons.chevron_right_rounded,
+                                  color: kMuted),
+                            ]),
+                          ),
+                        ),
+                    ]),
+            ),
+          ),
+        ]),
+      );
+}
+
+class TurmaPage extends StatefulWidget {
+  final Map<String, dynamic> turma;
+  const TurmaPage({super.key, required this.turma});
+  @override
+  State<TurmaPage> createState() => _TurmaPageState();
+}
+
+class _TurmaPageState extends State<TurmaPage> {
+  List<Map<String, dynamic>> alunos = [];
+  int totalAulas = 0;
+  bool carregando = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _carrega();
+  }
+
+  Future<void> _carrega() async {
+    try {
+      final r = await supa
+          .rpc('painel_turma', params: {'p_turma': widget.turma['id']});
+      final a = await supa.from('aulas').select('id');
+      if (!mounted) return;
+      setState(() {
+        alunos = List<Map<String, dynamic>>.from(r);
+        totalAulas = a.length;
+        carregando = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => carregando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final codigo = widget.turma['codigo'] as String;
+    final soma = alunos.fold<int>(
+        0, (a, m) => a + (m['aulas_concluidas'] as num).toInt());
+    final media = alunos.isEmpty ? 0.0 : soma / alunos.length;
+    return Scaffold(
+      backgroundColor: kDark,
+      body: SafeArea(
+        bottom: false,
+        child: Column(children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            ),
+          ),
+          sheetTop(widget.turma['nome'] as String, sub: 'Código da turma: $codigo'),
+          Expanded(
+            child: Container(
+              decoration: sheetDeco,
+              child: carregando
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView(padding: const EdgeInsets.all(20), children: [
+                      Row(children: [
+                        Expanded(
+                          child: Text(
+                              '${alunos.length} alunos  ·  média de ${media.toStringAsFixed(1).replaceAll('.', ',')} aulas',
+                              style: const TextStyle(
+                                  color: kText, fontWeight: FontWeight.w700)),
+                        ),
+                        TextButton.icon(
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: codigo));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Código copiado!')));
+                          },
+                          icon: const Icon(Icons.copy_rounded, size: 18),
+                          label: const Text('Copiar código'),
+                        ),
+                      ]),
+                      const SizedBox(height: 8),
+                      if (alunos.isEmpty)
+                        const Text(
+                            'Nenhum aluno entrou ainda. Passe o código para a turma.',
+                            style: TextStyle(color: kMuted)),
+                      for (var i = 0; i < alunos.length; i++) _aluno(i, alunos[i]),
+                    ]),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _aluno(int i, Map<String, dynamic> m) {
+    final feitas = (m['aulas_concluidas'] as num).toInt();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+          color: Colors.white, borderRadius: BorderRadius.circular(20)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          CircleAvatar(
+              radius: 14,
+              backgroundColor: const Color(0xFFDCEFDD),
+              child: Text('${i + 1}',
+                  style: const TextStyle(
+                      color: kGreen, fontWeight: FontWeight.w800, fontSize: 12))),
+          const SizedBox(width: 10),
+          Expanded(
+              child: Text(m['nome'] as String,
+                  style: const TextStyle(
+                      color: kText, fontWeight: FontWeight.w700, fontSize: 15))),
+          Text('$feitas/$totalAulas aulas',
+              style: const TextStyle(
+                  color: kGreen, fontSize: 12, fontWeight: FontWeight.w700)),
+        ]),
+        const SizedBox(height: 10),
+        LinearProgressIndicator(
+          value: totalAulas == 0 ? 0 : feitas / totalAulas,
+          minHeight: 6,
+          color: kGreen,
+          backgroundColor: kBg,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        const SizedBox(height: 8),
+        Text(
+            'Saldo: ${_brl((m['saldo'] as num).toDouble())}  ·  Investido: ${_brl((m['investido'] as num).toDouble())}',
+            style: const TextStyle(color: kMuted, fontSize: 12)),
+      ]),
+    );
+  }
+}
+
+
+// ------------------------------------------------------------- NOVA AULA
+class NovaAulaPage extends StatefulWidget {
+  const NovaAulaPage({super.key});
+  @override
+  State<NovaAulaPage> createState() => _NovaAulaPageState();
+}
+
+class _NovaAulaPageState extends State<NovaAulaPage> {
+  final _titulo = TextEditingController();
+  final _resumo = TextEditingController();
+  final _conteudo = TextEditingController();
+  final _valor = TextEditingController(text: '25');
+  String categoria = 'Poupar';
+  String? erro;
+  bool loading = false;
+
+  @override
+  void dispose() {
+    _titulo.dispose();
+    _resumo.dispose();
+    _conteudo.dispose();
+    _valor.dispose();
+    super.dispose();
+  }
+
+  Future<void> _publicar() async {
+    final v = double.tryParse(_valor.text.trim().replaceAll(',', '.'));
+    if (v == null || v < 0) {
+      setState(() => erro = 'Digite uma recompensa válida (0 ou mais).');
+      return;
+    }
+    setState(() {
+      loading = true;
+      erro = null;
+    });
+    try {
+      await supa.rpc('criar_aula', params: {
+        'p_titulo': _titulo.text,
+        'p_categoria': categoria,
+        'p_resumo': _resumo.text,
+        'p_conteudo': _conteudo.text,
+        'p_recompensa': v,
+      });
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on PostgrestException catch (e) {
+      setState(() => erro = e.message);
+    } catch (_) {
+      setState(() => erro = 'Sem conexão. Tente de novo.');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Widget _rotulo(String t) => Padding(
+        padding: const EdgeInsets.only(top: 16, bottom: 8),
+        child: Text(t,
+            style: const TextStyle(
+                color: kText, fontWeight: FontWeight.w700, fontSize: 14)),
+      );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: kDark,
+        body: SafeArea(
+          bottom: false,
+          child: Column(children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+              ),
+            ),
+            sheetTop('Nova aula', sub: 'Escreva o conteúdo e defina a recompensa'),
+            Expanded(
+              child: Container(
+                decoration: sheetDeco,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+                  children: [
+                    _rotulo('Título'),
+                    TextField(controller: _titulo, decoration: campo('Ex: Como montar um orçamento')),
+                    _rotulo('Categoria'),
+                    Wrap(spacing: 8, children: [
+                      for (final c in const ['Poupar', 'Investir', 'Gastos', 'Geral'])
+                        ChoiceChip(
+                            label: Text(c),
+                            selected: categoria == c,
+                            onSelected: (_) => setState(() => categoria = c)),
+                    ]),
+                    _rotulo('Resumo (opcional)'),
+                    TextField(controller: _resumo, decoration: campo('Uma frase sobre a aula')),
+                    _rotulo('Conteúdo da aula'),
+                    TextField(
+                      controller: _conteudo,
+                      minLines: 8,
+                      maxLines: 20,
+                      keyboardType: TextInputType.multiline,
+                      decoration: campo('Escreva o texto da aula aqui...'),
+                    ),
+                    _rotulo('Recompensa em R\$ (saldo virtual)'),
+                    TextField(
+                      controller: _valor,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: campo('Ex: 25'),
+                    ),
+                    if (erro != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(erro!,
+                            style: const TextStyle(color: kRed, fontSize: 13)),
+                      ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      height: 52,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: kGreen,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                        onPressed: loading ? null : _publicar,
+                        child: loading
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white))
+                            : const Text('Publicar aula',
+                                style: TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ]),
+        ),
       );
 }
