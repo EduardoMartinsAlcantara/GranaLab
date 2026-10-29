@@ -1964,6 +1964,12 @@ class _InvestirTabState extends State<InvestirTab> {
     if (ok == true) _carrega();
   }
 
+  Future<void> _abrirAtivo(Map<String, dynamic> a) async {
+    final ok = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => AtivoPage(ativo: a, saldo: saldo)));
+    if (ok == true) _carrega();
+  }
+
   Future<void> _sacar(String rpc, Map<String, dynamic> m, String verbo) async {
     try {
       final v = await supa.rpc(rpc, params: {'p_id': m['id']});
@@ -2038,14 +2044,16 @@ class _InvestirTabState extends State<InvestirTab> {
   Widget _ativo(Map<String, dynamic> a) {
     final pr = (a['preco'] as num).toDouble();
     final v = (pr / (a['preco_base'] as num).toDouble() - 1) * 100;
-    return _linhaCard(
+    return GestureDetector(
+      onTap: () => _abrirAtivo(a),
+      child: _linhaCard(
       titulo: '${a['ticker']}  ·  ${_brl(pr)}',
       sub: a['nome'] as String,
       destaque: '${_pct(v)} vs. preço de referência',
       corDestaque: v >= 0 ? kGreen : kRed,
       botao: 'Comprar',
       onTap: () => _abrirCompra(a['nome'] as String, ticker: a['ticker'] as String),
-    );
+    ));
   }
 
   Widget _aplicacao(Map<String, dynamic> m) {
@@ -2960,4 +2968,247 @@ class _NovaAulaPageState extends State<NovaAulaPage> {
           ]),
         ),
       );
+}
+
+
+// ---------------------------------------------------------------- GRÁFICO
+class _LinhaPainter extends CustomPainter {
+  final List<double> v;
+  final Color cor, preenchimento;
+  _LinhaPainter(this.v, this.cor, this.preenchimento);
+
+  @override
+  void paint(Canvas c, Size s) {
+    if (v.length < 2) return;
+    final mn = v.reduce(math.min), mx = v.reduce(math.max);
+    final span = (mx - mn) == 0 ? 1.0 : (mx - mn);
+    const pad = 10.0;
+    Offset pt(int i) => Offset(i / (v.length - 1) * s.width,
+        pad + (1 - (v[i] - mn) / span) * (s.height - 2 * pad));
+
+    final grade = Paint()
+      ..color = const Color(0xFFE5E7EB)
+      ..strokeWidth = 1;
+    for (var k = 0; k < 4; k++) {
+      final y = (k * (s.height - 1) / 3) + 0.5;
+      c.drawLine(Offset(0, y), Offset(s.width, y), grade);
+    }
+
+    final linha = Path()..moveTo(pt(0).dx, pt(0).dy);
+    for (var i = 1; i < v.length; i++) {
+      linha.lineTo(pt(i).dx, pt(i).dy);
+    }
+    final area = Path.from(linha)
+      ..lineTo(s.width, s.height)
+      ..lineTo(0, s.height)
+      ..close();
+    c.drawPath(
+        area,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [preenchimento, const Color(0x00FFFFFF)],
+          ).createShader(Offset.zero & s));
+    c.drawPath(
+        linha,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..strokeJoin = StrokeJoin.round
+          ..strokeCap = StrokeCap.round
+          ..color = cor);
+    final u = pt(v.length - 1);
+    c.drawCircle(u, 7, Paint()..color = Colors.white);
+    c.drawCircle(u, 5, Paint()..color = cor);
+  }
+
+  @override
+  bool shouldRepaint(_LinhaPainter old) => true;
+}
+
+class AtivoPage extends StatefulWidget {
+  final Map<String, dynamic> ativo;
+  final double saldo;
+  const AtivoPage({super.key, required this.ativo, required this.saldo});
+  @override
+  State<AtivoPage> createState() => _AtivoPageState();
+}
+
+class _AtivoPageState extends State<AtivoPage> {
+  static const periodos = ['15 min', '1 hora', '6 horas', '24 horas'];
+  static const minutos = [15, 60, 360, 1440];
+  int per = 0;
+  List<double> serie = [];
+  bool carregando = true;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _carrega();
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _carrega());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _carrega() async {
+    try {
+      final r = await supa.rpc('historico_ativo', params: {
+        'p_ticker': widget.ativo['ticker'],
+        'p_minutos': minutos[per],
+      });
+      if (!mounted) return;
+      setState(() {
+        serie = [
+          for (final x in List<Map<String, dynamic>>.from(r))
+            (x['preco'] as num).toDouble()
+        ];
+        carregando = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => carregando = false);
+    }
+  }
+
+  Future<void> _comprar() async {
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (_) => NovaAplicacao(
+          produto: widget.ativo['nome'] as String,
+          ticker: widget.ativo['ticker'] as String,
+          saldo: widget.saldo),
+    );
+    if (ok == true && mounted) Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final temDados = serie.length > 1;
+    final atual = temDados ? serie.last : 0.0;
+    final var_ = temDados ? (serie.last / serie.first - 1) * 100 : 0.0;
+    final sobe = var_ >= 0;
+    final cor = sobe ? kGreen : kRed;
+    return Scaffold(
+      backgroundColor: kDark,
+      body: SafeArea(
+        bottom: false,
+        child: Column(children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            ),
+          ),
+          sheetTop(widget.ativo['ticker'] as String,
+              sub: widget.ativo['nome'] as String),
+          Expanded(
+            child: Container(
+              decoration: sheetDeco,
+              child: carregando
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView(padding: const EdgeInsets.all(20), children: [
+                      Text(_brl(atual),
+                          style: const TextStyle(
+                              color: kText,
+                              fontSize: 34,
+                              fontWeight: FontWeight.w800)),
+                      Text('${_pct(var_)} em ${periodos[per]}',
+                          style: TextStyle(
+                              color: cor,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14)),
+                      const SizedBox(height: 16),
+                      Container(
+                        height: 230,
+                        padding: const EdgeInsets.fromLTRB(0, 8, 0, 0),
+                        decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20)),
+                        clipBehavior: Clip.antiAlias,
+                        child: CustomPaint(
+                          size: Size.infinite,
+                          painter: _LinhaPainter(
+                              serie,
+                              cor,
+                              sobe
+                                  ? const Color(0x4043A047)
+                                  : const Color(0x40E5484D)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 40,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: periodos.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 8),
+                          itemBuilder: (_, i) => ChoiceChip(
+                            label: Text(periodos[i]),
+                            selected: per == i,
+                            showCheckmark: false,
+                            selectedColor: kDark,
+                            labelStyle: TextStyle(
+                                color: per == i ? Colors.white : kText,
+                                fontWeight: FontWeight.w600),
+                            onSelected: (_) {
+                              setState(() {
+                                per = i;
+                                carregando = true;
+                              });
+                              _carrega();
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (temDados)
+                        Row(children: [
+                          Expanded(
+                              child: _dado('Mínima', _brl(serie.reduce(math.min)))),
+                          Expanded(
+                              child: _dado('Máxima', _brl(serie.reduce(math.max)))),
+                          Expanded(
+                              child: _dado('Início', _brl(serie.first))),
+                        ]),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        height: 52,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: kGreen,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: _comprar,
+                          child: Text('Comprar ${widget.ativo['ticker']}',
+                              style: const TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                    ]),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _dado(String rotulo, String valor) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(rotulo, style: const TextStyle(color: kMuted, fontSize: 12)),
+        const SizedBox(height: 2),
+        Text(valor,
+            style: const TextStyle(
+                color: kText, fontWeight: FontWeight.w700, fontSize: 14)),
+      ]);
 }
