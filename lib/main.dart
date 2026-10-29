@@ -2719,6 +2719,20 @@ class _TurmaPageState extends State<TurmaPage> {
 
 
 // ------------------------------------------------------------- NOVA AULA
+class _Q {
+  final texto = TextEditingController();
+  final expl = TextEditingController();
+  final ops = List.generate(4, (_) => TextEditingController());
+  int correta = 0;
+  void dispose() {
+    texto.dispose();
+    expl.dispose();
+    for (final o in ops) {
+      o.dispose();
+    }
+  }
+}
+
 class NovaAulaPage extends StatefulWidget {
   const NovaAulaPage({super.key});
   @override
@@ -2731,6 +2745,7 @@ class _NovaAulaPageState extends State<NovaAulaPage> {
   final _conteudo = TextEditingController();
   final _valor = TextEditingController(text: '25');
   String categoria = 'Poupar';
+  final qs = <_Q>[];
   String? erro;
   bool loading = false;
 
@@ -2740,6 +2755,9 @@ class _NovaAulaPageState extends State<NovaAulaPage> {
     _resumo.dispose();
     _conteudo.dispose();
     _valor.dispose();
+    for (final q in qs) {
+      q.dispose();
+    }
     super.dispose();
   }
 
@@ -2748,6 +2766,29 @@ class _NovaAulaPageState extends State<NovaAulaPage> {
     if (v == null || v < 0) {
       setState(() => erro = 'Digite uma recompensa válida (0 ou mais).');
       return;
+    }
+    final lista = <Map<String, dynamic>>[];
+    for (var i = 0; i < qs.length; i++) {
+      final q = qs[i];
+      final ops = <String>[];
+      int? certa;
+      for (var k = 0; k < 4; k++) {
+        final t = q.ops[k].text.trim();
+        if (t.isEmpty) continue;
+        if (k == q.correta) certa = ops.length;
+        ops.add(t);
+      }
+      if (q.texto.text.trim().length < 3 || ops.length < 2 || certa == null) {
+        setState(() => erro =
+            'Pergunta ${i + 1}: escreva o enunciado, ao menos 2 opções e marque a correta.');
+        return;
+      }
+      lista.add({
+        'pergunta': q.texto.text.trim(),
+        'opcoes': ops,
+        'correta': certa,
+        'explicacao': q.expl.text.trim(),
+      });
     }
     setState(() {
       loading = true;
@@ -2760,6 +2801,7 @@ class _NovaAulaPageState extends State<NovaAulaPage> {
         'p_resumo': _resumo.text,
         'p_conteudo': _conteudo.text,
         'p_recompensa': v,
+        'p_perguntas': lista,
       });
       if (!mounted) return;
       Navigator.of(context).pop(true);
@@ -2771,6 +2813,52 @@ class _NovaAulaPageState extends State<NovaAulaPage> {
       if (mounted) setState(() => loading = false);
     }
   }
+
+  Widget _bloco(int i, _Q q) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            color: Colors.white, borderRadius: BorderRadius.circular(18)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text('Pergunta ${i + 1}',
+                  style: const TextStyle(
+                      color: kText, fontWeight: FontWeight.w800)),
+            ),
+            IconButton(
+              tooltip: 'Remover pergunta',
+              onPressed: () => setState(() => qs.removeAt(i)),
+              icon: const Icon(Icons.delete_outline_rounded, color: kMuted),
+            ),
+          ]),
+          TextField(controller: q.texto, decoration: campo('Enunciado')),
+          const SizedBox(height: 8),
+          for (var k = 0; k < 4; k++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(children: [
+                IconButton(
+                  onPressed: () => setState(() => q.correta = k),
+                  icon: Icon(
+                      q.correta == k
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked,
+                      color: kGreen),
+                ),
+                Expanded(
+                  child: TextField(
+                      controller: q.ops[k],
+                      decoration:
+                          campo('Opção ${k + 1}${k < 2 ? '' : ' (opcional)'}')),
+                ),
+              ]),
+            ),
+          TextField(
+              controller: q.expl,
+              decoration: campo('Explicação da resposta (opcional)')),
+        ]),
+      );
 
   Widget _rotulo(String t) => Padding(
         padding: const EdgeInsets.only(top: 16, bottom: 8),
@@ -2826,6 +2914,18 @@ class _NovaAulaPageState extends State<NovaAulaPage> {
                           const TextInputType.numberWithOptions(decimal: true),
                       decoration: campo('Ex: 25'),
                     ),
+                    _rotulo('Quiz (opcional)'),
+                    const Text(
+                        'Toque no círculo ao lado da opção correta. Sem perguntas, o aluno conclui a aula só lendo.',
+                        style: TextStyle(color: kMuted, fontSize: 12)),
+                    const SizedBox(height: 10),
+                    for (var i = 0; i < qs.length; i++) _bloco(i, qs[i]),
+                    if (qs.length < 10)
+                      OutlinedButton.icon(
+                        onPressed: () => setState(() => qs.add(_Q())),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Adicionar pergunta'),
+                      ),
                     if (erro != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
